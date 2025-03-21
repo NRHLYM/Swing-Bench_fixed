@@ -27,7 +27,6 @@ def run_instance(task: Task):
 
     run_script("\n".join(task.env_script))
     run_script("\n".join(task.eval_script))
-    
     with tempfile.NamedTemporaryFile(delete=False, mode='w', encoding='utf-8', suffix='.patch') as patch_file:
         patch_file.write(task.patch)
         patch_path = patch_file.name

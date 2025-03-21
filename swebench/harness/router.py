@@ -18,9 +18,9 @@ def run_script(script_content, cwd=None):
                            check=True, 
                            stdout=subprocess.DEVNULL, 
                            stderr=subprocess.DEVNULL)
-        except:
-            # TODO: handle except
-            pass
+        except Exception as e:
+            return e
+    return None
 
 @dataclass
 class Task:
@@ -164,7 +164,7 @@ class ActCITool(CIToolBase):
                 # "jobID": "test-linux",
                 # "level": "info",
                 # "matrix": {},
-                # "msg": "  ✅  Success - Main actions/setup-go@v5",
+                # "msg": "  ?  Success - Main actions/setup-go@v5",
                 # "stage": "Main",
                 # "step": "actions/setup-go@v5",
                 # "stepID": [
@@ -220,7 +220,6 @@ class ActCITool(CIToolBase):
                 json.dump(result, f, ensure_ascii=False, indent=4)
             self.act_mq.put(result)
     
-    # haoran: logic here?
     def run_ci(self, pool):
         task = self.task
         run_script("\n".join(task.env_script))
@@ -246,6 +245,13 @@ class ActCITool(CIToolBase):
             eval_result.append(self.act_mq.get())
         
         run_script("\n".join(task.previous_eval_script))
+        if task.previous_eval_script:
+            result = run_script(f"git apply {task.previous_eval_script}")
+            if not result:
+                print("Apply test patch successfully")
+            else:
+                print(f'Error when applying test patch: {result}')
+
         previous_eval_result = []
         threads = []
         for ci in self.config["ci_name_list"]:

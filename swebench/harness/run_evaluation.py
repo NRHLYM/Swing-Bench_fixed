@@ -136,7 +136,7 @@ def get_dataset_from_preds(
     
     # haoran: filter out dataset with test cases
     dataset = [d for d in dataset if d['test_patch']]
-
+    print(f'Total {len(dataset)} pieces of data.')
     return dataset
 
 
@@ -247,4 +247,4 @@ if __name__ == "__main__":
 # python -m swebench.harness.run_evaluation \
 #     --dataset_name SwingBench/SWE-Rust \
 #     --split train \
-#     --predictions_path /raid/Swing-Bench/src/crawl/tasks_with_ci_final.json
+#     --predictions_path /raid/Swing-Bench/src/crawl/tasks_with_ci_rest_0318.jsonl
