@@ -7,15 +7,17 @@ import threading
 from queue import Queue
 import json
 
-def run_script(script_content):
+def run_script(script_content, cwd=None):
     with tempfile.NamedTemporaryFile(mode="w", delete=True, suffix=".sh") as temp_script:
         temp_script.write(script_content)
         temp_script.flush()
         temp_path = temp_script.name
-
         try:
-            # subprocess.run(["bash", temp_path], check=True)
-            subprocess.run(["bash", temp_path], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(["bash", temp_path], 
+                           cwd=cwd,
+                           check=True, 
+                           stdout=subprocess.DEVNULL, 
+                           stderr=subprocess.DEVNULL)
         except:
             # TODO: handle except
             pass
@@ -93,6 +95,7 @@ class ActCITool(CIToolBase):
     def __init__(self, config):
         super().__init__(config)
         self.act_list_path = 'act_list.txt'
+        self.apply_patch = self.config["apply_patch"]
         self.cloned_repo_path = self.config["repo"].split("/")[1] + "_" + self.config["merge_commit"]
         self.ci_dict = dict()
         self.result_lock = threading.Lock()
@@ -193,7 +196,7 @@ class ActCITool(CIToolBase):
         value = self.ci_dict.get(ci[0])
         if value is not None:
             port = pool.acquire_port()
-            path = self.config["output_dir"] + "/" + self.task.id + "_" + order + "_" + value + "_output.json"
+            path = self.config["output_dir"] + "/" + self.task.id + "_"  + value + "_" + order + "_output.json"
             if os.path.exists(path):
                 return
             process = subprocess.Popen(["act", "-j", value,
@@ -216,12 +219,16 @@ class ActCITool(CIToolBase):
             with open(path, 'w', encoding='utf-8') as f:
                 json.dump(result, f, ensure_ascii=False, indent=4)
             self.act_mq.put(result)
-           
+    
+    # haoran: logic here?
     def run_ci(self, pool):
         task = self.task
         run_script("\n".join(task.env_script))
         run_script("\n".join(task.eval_script))
 
+        if self.apply_patch:
+            run_script()
+                        
         self._get_ci_job_name_id_dict(task.target_dir)
         eval_result = []
         threads = []
