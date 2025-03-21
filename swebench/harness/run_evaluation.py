@@ -34,6 +34,7 @@ def run_instances(
     timeout: int,
     target_dir: str,
     report_dir: str,
+    apply_patch: bool
 ):
     """
     Run all instances for the given predictions in parallel.
@@ -61,6 +62,7 @@ def run_instances(
                 "ci_name_list": test["ci_name_list"],
                 "workdir": target_dir,
                 "output_dir": report_dir,
+                "apply_patch": apply_patch
             })
         tasks.append(act)
 
@@ -147,6 +149,7 @@ def main(
     timeout: int,
     target_dir: str = "./testbed",
     report_dir: str = "./report",
+    apply_patch: bool = False,
 ):
     """
     Run evaluation harness for the given dataset and predictions.
@@ -183,12 +186,19 @@ def main(
             timeout,
             target_dir,
             report_dir,
+            apply_patch
         )
 
 if __name__ == "__main__":
     parser = ArgumentParser(
         description="Run evaluation harness for the given dataset and predictions.",
         formatter_class=ArgumentDefaultsHelpFormatter,
+    )
+    
+    parser.add_argument(
+        "--apply_patch",
+        help="Whether to apply patch during evaluation",
+        action="store_true",
     )
 
     # Common args
