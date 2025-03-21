@@ -131,6 +131,10 @@ def get_dataset_from_preds(
         if i[KEY_INSTANCE_ID] in prediction_ids
         and i["test_patch"] not in empty_patch_ids
     ]
+    
+    # haoran: filter out dataset with test cases
+    dataset = [d for d in dataset if d['test_patch']]
+
     return dataset
 
 

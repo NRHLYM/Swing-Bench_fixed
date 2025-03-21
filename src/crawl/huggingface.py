@@ -75,9 +75,9 @@ def upload_to_huggingface(dataset_name, file_split_mapping, token):
 
 def upload():
     DATASET_NAME = "SwingBench/SWE-rust"
-    TOKEN = os.environ["HF_KEY"]
+    TOKEN = os.environ["HF_TOKEN"]
     FILE_SPLIT_MAPPING = {
-        "train": "issues/all_tasks.jsonl",
+        "train": "tasks_with_ci_rest_0318.jsonl",
     }
     upload_to_huggingface(DATASET_NAME, FILE_SPLIT_MAPPING, TOKEN)
     
