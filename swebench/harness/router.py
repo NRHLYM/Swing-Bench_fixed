@@ -6,6 +6,9 @@ import threading
 from queue import Queue
 import json
 from dataclasses import dataclass
+import logging
+
+logger = logging.getLogger(__name__)
 
 def run_script(script_content, cwd=None):
     with tempfile.NamedTemporaryFile(mode="w", delete=True, suffix=".sh") as temp_script:
@@ -49,28 +52,42 @@ class CargoCITool(CIToolBase):
 
     def _build_repo_base_env(self):
         script = ["#!/bin/bash"]
-
-        if subprocess.run(['rustc', '--version'], capture_output=True).returncode != 0:
-            script.extend(RUST_INSTALL)
-
-        package_list = RUST_BASE_ENV[self.config["repo"]]
-        script.extend(["apt install " + package for package in package_list])
-        script.extend(["cd " + self.config["workdir"], "git clone https://github.com/" + self.config["repo"] + ".git"])
+        
+        repo_dir_name = self.config["repo"].replace('/', '__')
+        instance_id = self.config.get("id", "unknown")
+        src_path = os.path.join(self.config["src_folder"], repo_dir_name)
+        dst_path = os.path.join(self.config["workdir"], f"{self.config['repo'].split('/')[1]}_{instance_id}")
+        
+        script.append(f"mkdir -p {dst_path}")
+        script.append(f"cp -r {src_path}/. {dst_path}/")
 
         return script
 
     def _build_eval_script(self):
+        instance_id = self.config.get("id", "unknown")
+        target_dir = os.path.join(self.config["workdir"], f"{self.config['repo'].split('/')[1]}_{instance_id}")
+        
         script = ["#!/bin/bash", 
-                    "cd " + self.config["workdir"] + "/" + self.config["repo"].split("/")[1],
-                    "git checkout " + self.config["merge_commit"],
-                ]
+                  f"cd {target_dir}",
+                 ]
+        
+        script.append("git stash -u || true")
+        
+        if "merge_commit" in self.config and self.config["merge_commit"]:
+            script.append("git checkout " + self.config["merge_commit"])
+            if self.config.get("apply_patch", False) and self.config.get("patch"):
+                patch_file = f"{target_dir}/patch.diff"
+                script.append(f"cat > {patch_file} << 'EOL'\n{self.config['patch']}\nEOL")
 
         return script
 
     def construct(self):
         env_script = self._build_repo_base_env()
         eval_script = self._build_eval_script()
-        target_dir = self.config["workdir"] + "/" + self.config["repo"].split("/")[1]
+        
+        instance_id = self.config.get("id", "unknown")
+        target_dir = os.path.join(self.config["workdir"], f"{self.config['repo'].split('/')[1]}_{instance_id}")
+        
         self.task = Task("", env_script, eval_script, self.config["patch"], target_dir, self.config["output_dir"])
 
     def parse_test_results(self, log_file):
@@ -101,23 +118,101 @@ class CargoCITool(CIToolBase):
         return test_results
 
     def run_ci(self, log_file):
-        task = self.task
-        with open(log_file, "w") as f:
-            result = subprocess.run(["cargo", "test"], cwd=task.target_dir, stdout=f, stderr=f, text=True)
-        
-        test_results = self.parse_test_results(log_file)
-        
-        output = {
-            "returncode": result.returncode,
-            "test_results": test_results
-        }
-        
-        # Write processed results to JSON
-        results_json_path = log_file + ".json"
-        with open(results_json_path, 'w') as f:
-            json.dump(output, f, indent=4)
+        """Run tests and save results to log file"""
+        try:
+            logger.info(f"Starting CI run for {self.config['repo']} (ID: {self.config.get('id', 'unknown')})")
+            # Execute environment setup and evaluation scripts
+            self._execute_scripts()
             
-        return output
+            task = self.task
+            logger.info(f"Running cargo test in {task.target_dir}")
+            with open(log_file, "w") as f:
+                result = subprocess.run(
+                    ["cargo", "test"], 
+                    cwd=task.target_dir, 
+                    stdout=f, 
+                    stderr=subprocess.STDOUT,  # Redirect stderr to stdout
+                    text=True
+                )
+            
+            logger.info(f"Cargo test completed with return code: {result.returncode}")
+            test_results = self.parse_test_results(log_file)
+            
+            output = {
+                "returncode": result.returncode,
+                "test_results": test_results
+            }
+            
+            # Write processed results to JSON
+            results_json_path = log_file + ".json"
+            with open(results_json_path, 'w') as f:
+                json.dump(output, f, indent=4)
+            
+            logger.info(f"Results saved to {results_json_path}")
+            return output
+        except Exception as e:
+            logger.error(f"Task failed with exception: {str(e)}")
+            # Record error to log file
+            with open(log_file, "w") as f:
+                f.write(f"Task failed with exception: {str(e)}")
+            
+            # Return error information
+            return {
+                "returncode": 1,
+                "error": str(e),
+                "test_results": {"passed": [], "failed": [], "ignored": [], "failure_details": {}}
+            }
+
+    def _execute_scripts(self):
+        """Execute environment setup and evaluation scripts, hide output"""
+        # Ensure each repository uses unique script file paths
+        repo_name = self.config["repo"].split("/")[1]
+        instance_id = self.config.get("id", "unknown")
+        script_dir = os.path.join(self.config["workdir"], f"{repo_name}_{instance_id}")
+        
+        logger.info(f"Creating script directory: {script_dir}")
+        # Create script directory
+        os.makedirs(script_dir, exist_ok=True)
+        
+        # Execute environment setup script
+        env_script_path = os.path.join(script_dir, "env_setup.sh")
+        with open(env_script_path, 'w') as f:
+            f.write('\n'.join(self.task.env_script))
+        
+        logger.info("Executing environment setup script")
+        subprocess.run(
+            ['chmod', '+x', env_script_path], 
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+        
+        subprocess.run(
+            [env_script_path], 
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+        
+        # Execute evaluation script
+        eval_script_path = os.path.join(script_dir, "eval.sh")
+        with open(eval_script_path, 'w') as f:
+            f.write('\n'.join(self.task.eval_script))
+        
+        logger.info("Executing evaluation script")
+        subprocess.run(
+            ['chmod', '+x', eval_script_path], 
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+        
+        subprocess.run(
+            [eval_script_path], 
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
 
 class DockerCITool(CIToolBase):
     def __init__(self, config):
