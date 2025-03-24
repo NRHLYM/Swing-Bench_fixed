@@ -1,11 +1,11 @@
-from dataclasses import dataclass
 import subprocess
-import os
 import re
+import os
 import tempfile
 import threading
 from queue import Queue
 import json
+from dataclasses import dataclass
 
 def run_script(script_content, cwd=None):
     with tempfile.NamedTemporaryFile(mode="w", delete=True, suffix=".sh") as temp_script:
@@ -73,14 +73,51 @@ class CargoCITool(CIToolBase):
         target_dir = self.config["workdir"] + "/" + self.config["repo"].split("/")[1]
         self.task = Task("", env_script, eval_script, self.config["patch"], target_dir, self.config["output_dir"])
 
+    def parse_test_results(self, log_file):
+        with open(log_file, 'r') as f:
+            output = f.read()
+        
+        passed_pattern = r"test ([\w:]+) \.\.\. ok"
+        failed_pattern = r"test ([\w:]+) \.\.\. FAILED"
+        ignored_pattern = r"test ([\w:]+) \.\.\. ignored"
+        
+        passed_tests = re.findall(passed_pattern, output)
+        failed_tests = re.findall(failed_pattern, output)
+        ignored_tests = re.findall(ignored_pattern, output)
+        
+        test_results = {
+            "passed": passed_tests,
+            "failed": failed_tests,
+            "ignored": ignored_tests,
+            "failure_details": {}
+        }
+        
+        for test in failed_tests:
+            regex_pattern = rf"---- {re.escape(test)} stdout ----\n(.*?)(?:\n\nfailures:|\n\ntest result:|$)"
+            failure_details = re.search(regex_pattern, output, re.DOTALL)
+            if failure_details:
+                test_results["failure_details"][test] = failure_details.group(1).strip()
+        
+        return test_results
+
     def run_ci(self, log_file):
         task = self.task
         with open(log_file, "w") as f:
             result = subprocess.run(["cargo", "test"], cwd=task.target_dir, stdout=f, stderr=f, text=True)
-        if result.returncode != 0:
-            print(f"[ERROR] Task {task.id} cargo test failed with return code {result.returncode}")
-            return None
-        return result
+        
+        test_results = self.parse_test_results(log_file)
+        
+        output = {
+            "returncode": result.returncode,
+            "test_results": test_results
+        }
+        
+        # Write processed results to JSON
+        results_json_path = log_file + ".json"
+        with open(results_json_path, 'w') as f:
+            json.dump(output, f, indent=4)
+            
+        return output
 
 class DockerCITool(CIToolBase):
     def __init__(self, config):
@@ -158,21 +195,6 @@ class ActCITool(CIToolBase):
                 continue
             try:
                 data = json.loads(line)
-                # {
-                # "dryrun": false,
-                # "job": "checks/test-linux",
-                # "jobID": "test-linux",
-                # "level": "info",
-                # "matrix": {},
-                # "msg": "  ?  Success - Main actions/setup-go@v5",
-                # "stage": "Main",
-                # "step": "actions/setup-go@v5",
-                # "stepID": [
-                #     "2"
-                # ],
-                # "stepResult": "success",
-                # "time": "2025-03-05T13:49:03+08:00"
-                # }
                 result = {
                     'dryrun': data.get('dryrun', ''),
                     'job': data.get('job', ''),
