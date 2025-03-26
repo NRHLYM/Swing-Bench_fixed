@@ -8,10 +8,10 @@ dataset = load_dataset("SwingBench/SWE-Rust", split="train")
 print(dataset)
 
 def clone_repo(repo):
-    git_url = f'https://github.com.psmoe.com/{repo}.git'
-    repo_path = f'/raid/rust-repos/{repo.replace("/", "__")}'
+    git_url = f'https://github.com/{repo}.git'
+    repo_path = f'/home/mnt/hrwang/rust-repos/{repo.replace("/", "__")}'
     attempts = 0
-    MAX_ATTEMPTS = 1
+    MAX_ATTEMPTS = 10
     if os.path.exists(repo_path) and len(os.listdir(repo_path)) > 1:
         return
     else:
@@ -29,5 +29,5 @@ def clone_repo(repo):
         print(f'Failed to clone {git_url} after {MAX_ATTEMPTS} attempts.')
 
 
-with ThreadPoolExecutor(max_workers=15) as executor:
+with ThreadPoolExecutor(max_workers=30) as executor:
     executor.map(clone_repo, dataset['repo'])

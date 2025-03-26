@@ -75,9 +75,18 @@ class CargoCITool(CIToolBase):
         
         if "merge_commit" in self.config and self.config["merge_commit"]:
             script.append("git checkout " + self.config["merge_commit"])
+            
+            # Apply test_patch if it exists
+            if self.config.get("test_patch"):
+                test_patch_file = f"{target_dir}/test_patch.diff"
+                script.append(f"cat > {test_patch_file} << 'EOL'\n{self.config['test_patch']}\nEOL")
+                script.append(f"git apply {test_patch_file} || echo 'Failed to apply test_patch'")
+            
+            # Apply patch only if apply_patch is specified
             if self.config.get("apply_patch", False) and self.config.get("patch"):
                 patch_file = f"{target_dir}/patch.diff"
                 script.append(f"cat > {patch_file} << 'EOL'\n{self.config['patch']}\nEOL")
+                script.append(f"git apply {patch_file} || echo 'Failed to apply patch'")
 
         return script
 
@@ -122,9 +131,9 @@ class CargoCITool(CIToolBase):
         try:
             logger.info(f"Starting CI run for {self.config['repo']} (ID: {self.config.get('id', 'unknown')})")
             # Execute environment setup and evaluation scripts
-            self._execute_scripts()
-            
             task = self.task
+            
+            self._execute_scripts(cwd=task.target_dir)            
             logger.info(f"Running cargo test in {task.target_dir}")
             with open(log_file, "w") as f:
                 result = subprocess.run(
@@ -134,7 +143,7 @@ class CargoCITool(CIToolBase):
                     stderr=subprocess.STDOUT,  # Redirect stderr to stdout
                     text=True
                 )
-            
+
             logger.info(f"Cargo test completed with return code: {result.returncode}")
             test_results = self.parse_test_results(log_file)
             
@@ -163,7 +172,7 @@ class CargoCITool(CIToolBase):
                 "test_results": {"passed": [], "failed": [], "ignored": [], "failure_details": {}}
             }
 
-    def _execute_scripts(self):
+    def _execute_scripts(self, cwd="~"):
         """Execute environment setup and evaluation scripts, hide output"""
         # Ensure each repository uses unique script file paths
         repo_name = self.config["repo"].split("/")[1]
@@ -190,6 +199,7 @@ class CargoCITool(CIToolBase):
         subprocess.run(
             [env_script_path], 
             check=True,
+            # cwd=cwd,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL
         )
@@ -210,6 +220,7 @@ class CargoCITool(CIToolBase):
         subprocess.run(
             [eval_script_path], 
             check=True,
+            # cwd=cwd,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL
         )
