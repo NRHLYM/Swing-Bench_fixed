@@ -35,6 +35,11 @@ def battle(
 ):
     """
     The logic of model battle.
+
+    Args:
+        dataset (List[SwingbenchInstance]): a list containing multiple instances of SwingbenchInstance
+        agent_one (AgentProxy): an instance of AgentProxy
+        agent_two (AgentProxy): an instance of AgentProxy
     """
     
     turns = 10

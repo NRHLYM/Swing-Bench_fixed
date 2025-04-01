@@ -54,7 +54,7 @@ class Verifier:
         Patch verifier.
 
         Args:
-            data (dict): a piece of data from dataset
+            data (SwingbenchInstance): a piece of data from dataset
             patch: patch string? temporary patch file?
             test: test string? temporary test file?
         
@@ -66,7 +66,7 @@ class Verifier:
         Test verifier.
 
         Args:
-            data (dict): a piece of data from dataset
+            data (SwingbenchInstance): a piece of data from dataset
             test: test string? temporary test file?
         """
         pass
@@ -127,7 +127,7 @@ class AgentProxy:
         Patch generater.
 
         Args:
-            data (dict): a piece of data from dataset
+            data (SwingbenchInstance): a piece of data from dataset
         """
         issue = None
         code_snippset = None
@@ -139,7 +139,7 @@ class AgentProxy:
         Test generater.
 
         Args:
-            data (str): a piece of data from dataset
+            data (SwingbenchInstance): a piece of data from dataset
         """
         issue = None
         patch = None
