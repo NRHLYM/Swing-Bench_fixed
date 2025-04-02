@@ -94,33 +94,38 @@ class AgentProxy:
             self.call_openai(prompt, state)
         # TODO: offline server
 
-    def call_openai(self, prompt, state):
+    def call_openai(self, base_url, prompt, state):
         """
         Openai interface.
 
         Args:
+            base_url (str): the base url of the openai server e.g. http://localhost:8000/v1
             prompt (str): your prompt
             state (AgentState): the type of this prompt
         """
-        if not os.environ.get("OPENAI_API_KEY"):
-            raise ValueError("Must provide an api key. Expected in OPENAI_API_KEY environment variable.")
-        client = OpenAI()
+        # For local inference, we don't need an API key
+        api_key = os.environ.get("OPENAI_API_KEY", "not-needed")
+        client = OpenAI(
+            api_key=api_key,
+            base_url=base_url,
+        )
         if state == AgentState.PATCH:
-            response = client.responses.create(
+            response = client.chat.completions.create(
                 model=self.name,
-                input=[
+                messages=[
                     {"role": "developer", "content": GENERATE_PATCH_SYSTEM_MESSAGE},
                     {"role": "user", "content": prompt},
                 ],
             )
         else:
-            response = client.responses.create(
+            response = client.chat.completions.create(
                 model=self.name,
-                input=[
+                messages=[
                     {"role": "developer", "content": GENERATE_TEST_SYSTEM_MESSAGE},
                     {"role": "user", "content": prompt},
                 ],
             )
+        print(response)
         
     def generate_patch(self, data):
         """
@@ -145,3 +150,9 @@ class AgentProxy:
         patch = None
         prompt = None
         return self.call_api(prompt, AgentState.TEST)
+
+
+if __name__ == "__main__":
+    # http://localhost:8200/v1
+    agent = AgentProxy("/home/mnt/wdxu/models/DeepSeek-R1-Distill-Qwen-7B")
+    agent.call_openai("http://localhost:8200/v1", "Hello, world!", AgentState.PATCH)
