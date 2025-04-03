@@ -5,7 +5,8 @@ from swebench.harness.constants.swing_constants import(
     SwingbenchInstance
 )
 
-OPENAI_LIST = ["gpt-3.5-turbo", "gpt-4", "gpt-4o", "gpt-4.5-preview"]
+OPENAI_LIST = ["gpt-3.5-turbo", "gpt-4", "gpt-4o", "gpt-4.5-preview",
+               "/home/mnt/wdxu/models/DeepSeek-R1-Distill-Qwen-7B"]
 
 MODEL_LIMITS = {
     # "claude-instant-1": 100_000,
@@ -91,7 +92,7 @@ class AgentProxy:
         self.name = name
         self.score = 0
 
-    def call_api(self, prompt, state):
+    def _call_api(self, base_url: str, prompt: str, state: AgentState):
         """
         Route the prompt to different API.
 
@@ -99,11 +100,15 @@ class AgentProxy:
             prompt (str): your prompt
             state (AgentState): the type of this prompt
         """
+        response = None
         if self.name in OPENAI_LIST:
-            self.call_openai(prompt, state)
-        # TODO: offline server
+            response = self._call_openai(base_url, prompt, state)
+        else:
+            # TODO(wdxu): offline server
+            response = self._call_offline()
+        return response
 
-    def call_openai(self, base_url: str, prompt: str, state: AgentState):
+    def _call_openai(self, base_url: str, prompt: str, state: AgentState):
         """
         Openai interface.
 
@@ -136,7 +141,10 @@ class AgentProxy:
             )
         return response
 
-    def generate_patch(self, data: SwingbenchInstance):
+    def _call_offline(self):
+        raise NotImplementedError("Offline server is not implemented yet.")
+
+    def generate_patch(self, base_url: str, data: SwingbenchInstance):
         """
         Patch generater.
 
@@ -148,9 +156,9 @@ class AgentProxy:
 
         prompt = GENERATE_PATCH_TEMPLATE.format(issue=issue, code_snippset=code_snippset)
         
-        return self.call_api(prompt, AgentState.PATCH)
+        return self._call_api(base_url, prompt, AgentState.PATCH)
 
-    def generate_test(self, data: SwingbenchInstance):
+    def generate_test(self, base_url: str, data: SwingbenchInstance):
         """
         Test generater.
 
@@ -164,11 +172,19 @@ class AgentProxy:
 
         prompt = GENERATE_TEST_TEMPLATE.format(issue=issue, code_snippset=code_snippset, patch=patch, sample=sample)
 
-        return self.call_api(prompt, AgentState.TEST)
+        return self._call_api(base_url, prompt, AgentState.TEST)
 
 
 if __name__ == "__main__":
     # http://localhost:8200/v1
     agent = AgentProxy("/home/mnt/wdxu/models/DeepSeek-R1-Distill-Qwen-7B")
-    response = agent.call_openai("http://localhost:8200/v1", "Hello, world!", AgentState.PATCH)
-    print(response)
+    
+    import swing_utils
+    dataset_jsonl_path = '/mnt/Data/wdxu/github/Swing-Bench/tmpdata/dataset.json'
+    dataset = swing_utils.load_swingbench_dataset(dataset_jsonl_path)
+    model_base_url = "http://localhost:8200/v1"
+    for swing_instance in dataset:
+        response = agent.generate_patch(model_base_url, swing_instance)
+        print(response)
+        response = agent.generate_test(model_base_url, swing_instance)
+        print(response)
