@@ -81,18 +81,24 @@ class Verifier:
             pass
 
 
+class ModelInfo:
+    def __init__(self, name: str, base_url: str):
+        self.name = name
+        self.base_url = base_url
+
+
 class AgentProxy:
-    def __init__(self, name: str):
+    def __init__(self, model_info: ModelInfo):
         """
         Initialize agent proxy.
 
         Args:
             name (str): agent type
         """
-        self.name = name
+        self.model_info = model_info
         self.score = 0
 
-    def _call_api(self, base_url: str, prompt: str, state: AgentState):
+    def _call_api(self, prompt: str, state: AgentState):
         """
         Route the prompt to different API.
 
@@ -101,14 +107,14 @@ class AgentProxy:
             state (AgentState): the type of this prompt
         """
         response = None
-        if self.name in OPENAI_LIST:
-            response = self._call_openai(base_url, prompt, state)
+        if self.model_info.name in OPENAI_LIST:
+            response = self._call_openai(prompt, state)
         else:
             # TODO(wdxu): offline server
             response = self._call_offline()
         return response
 
-    def _call_openai(self, base_url: str, prompt: str, state: AgentState):
+    def _call_openai(self, prompt: str, state: AgentState):
         """
         Openai interface.
 
@@ -121,11 +127,11 @@ class AgentProxy:
         api_key = os.environ.get("OPENAI_API_KEY", "not-needed")
         client = OpenAI(
             api_key=api_key,
-            base_url=base_url,
+            base_url=self.model_info.base_url,
         )
         if state == AgentState.PATCH:
             response = client.chat.completions.create(
-                model=self.name,
+                model=self.model_info.name,
                 messages=[
                     {"role": "developer", "content": GENERATE_PATCH_SYSTEM_MESSAGE},
                     {"role": "user", "content": prompt},
@@ -133,7 +139,7 @@ class AgentProxy:
             )
         else:
             response = client.chat.completions.create(
-                model=self.name,
+                model=self.model_info.name,
                 messages=[
                     {"role": "developer", "content": GENERATE_TEST_SYSTEM_MESSAGE},
                     {"role": "user", "content": prompt},
@@ -144,7 +150,7 @@ class AgentProxy:
     def _call_offline(self):
         raise NotImplementedError("Offline server is not implemented yet.")
 
-    def generate_patch(self, base_url: str, data: SwingbenchInstance):
+    def generate_patch(self, data: SwingbenchInstance):
         """
         Patch generater.
 
@@ -156,9 +162,9 @@ class AgentProxy:
 
         prompt = GENERATE_PATCH_TEMPLATE.format(issue=issue, code_snippset=code_snippset)
         
-        return self._call_api(base_url, prompt, AgentState.PATCH)
+        return self._call_api(prompt, AgentState.PATCH)
 
-    def generate_test(self, base_url: str, data: SwingbenchInstance):
+    def generate_test(self, data: SwingbenchInstance):
         """
         Test generater.
 
@@ -172,20 +178,19 @@ class AgentProxy:
 
         prompt = GENERATE_TEST_TEMPLATE.format(issue=issue, code_snippset=code_snippset, patch=patch, sample=sample)
 
-        return self._call_api(base_url, prompt, AgentState.TEST)
+        return self._call_api(prompt, AgentState.TEST)
 
 
 if __name__ == "__main__":
-    # http://localhost:8200/v1
-
-    agent = AgentProxy("/home/mnt/wdxu/models/DeepSeek-R1-Distill-Qwen-7B")
-    
     import swing_utils
     dataset_jsonl_path = '/mnt/Data/wdxu/github/Swing-Bench/tmpdata/dataset.json'
     dataset = swing_utils.load_swingbench_dataset(dataset_jsonl_path)
-    model_base_url = "http://localhost:8200/v1"
+
+    model_info = ModelInfo(name="/home/mnt/wdxu/models/DeepSeek-R1-Distill-Qwen-7B", base_url="http://localhost:8200/v1")
+    agent = AgentProxy(model_info)
+
     for swing_instance in dataset:
-        response = agent.generate_patch(model_base_url, swing_instance)
+        response = agent.generate_patch(swing_instance)
         print('patch reponse', response.choices[0].message.content)
-        response = agent.generate_test(model_base_url, swing_instance)
+        response = agent.generate_test(swing_instance)
         print('test reponse', response.choices[0].message.content)

@@ -27,6 +27,7 @@ class SwingbenchInstance:
     ci_name_list: list[str]
 
     # for generate_patch by agent. get this from retriever. default is None.
+    # this should be filled by retriever.
     related_code_snippset: str = None
 
 # Constants - Test Types, Statuses, Commands
