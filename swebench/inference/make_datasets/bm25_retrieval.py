@@ -458,31 +458,32 @@ def get_root_dir(dataset_name, output_dir, document_encoding_style):
     return root_dir, root_dir_name
 
 
-def main(
+def run_bm25(
     dataset_name_or_path,
+    file_name,
     document_encoding_style,
     output_dir,
-    shard_id,
-    num_shards,
-    splits,
-    leave_indexes,
 ):
     document_encoding_func = DOCUMENT_ENCODING_FUNCTIONS[document_encoding_style]
     token = os.environ.get("GITHUB_TOKEN", "git")
-    if Path(dataset_name_or_path).exists():
-        dataset = load_from_disk(dataset_name_or_path)
-        dataset_name = os.path.basename(dataset_name_or_path)
-    else:
-        dataset = load_dataset(dataset_name_or_path)
-        dataset_name = dataset_name_or_path.replace("/", "__")
-    if shard_id is not None:
-        for split in splits:
-            dataset[split] = dataset[split].shard(num_shards, shard_id)
+
+    # change to load data from huggingface
+    dataset_name = "temp" # hard code to debug, change to dataset name future
     instances = list()
-    if set(splits) - set(dataset.keys()) != set():
-        raise ValueError(f"Unknown splits {set(splits) - set(dataset.keys())}")
-    for split in splits:
-        instances += list(dataset[split])
+    with open(file_name) as file:
+        for line in file:
+            line = line.strip()
+            data = json.loads(line)
+            instances.append(data)
+
+    # if Path(dataset_name_or_path).exists():
+    #     dataset = load_from_disk(dataset_name_or_path)
+    #     dataset_name = os.path.basename(dataset_name_or_path)
+    # else:
+    #     dataset = load_dataset(dataset_name_or_path)
+    #     dataset_name = dataset_name_or_path.replace("/", "__")
+    # instances = list(dataset)
+
     python = subprocess.run("which python", shell=True, capture_output=True)
     python = python.stdout.decode("utf-8").strip()
     output_file = Path(
@@ -503,10 +504,7 @@ def main(
         )
     except KeyboardInterrupt:
         logger.info(f"Cleaning up {root_dir}")
-        del_dirs = list(root_dir.glob("repo__*"))
-        if leave_indexes:
-            index_dirs = list(root_dir.glob("index__*"))
-            del_dirs += index_dirs
+        del_dirs = list(root_dir.glob("index__*")) + list(root_dir.glob("repo__*"))
         for dirname in del_dirs:
             shutil.rmtree(dirname, ignore_errors=True)
     logger.info(f"Finished indexing {len(all_index_paths)} instances")
@@ -514,11 +512,8 @@ def main(
     missing_ids = get_missing_ids(instances, output_file)
     logger.warning(f"Missing indexes for {len(missing_ids)} instances.")
     logger.info(f"Saved retrieval results to {output_file}")
-    del_dirs = list(root_dir.glob("repo__*"))
+    del_dirs = list(root_dir.glob("index__*")) + list(root_dir.glob("repo__*"))
     logger.info(f"Cleaning up {root_dir}")
-    if leave_indexes:
-        index_dirs = list(root_dir.glob("index__*"))
-        del_dirs += index_dirs
     for dirname in del_dirs:
         shutil.rmtree(dirname, ignore_errors=True)
 
@@ -532,14 +527,16 @@ if __name__ == "__main__":
         help="Dataset to use for test set from HuggingFace Datasets or path to a save_to_disk directory.",
     )
     parser.add_argument(
+        "--file_name",
+        type=str,
+        default="./tmpdata/dataset.json",
+        help="temporary file to debug",
+    )
+    parser.add_argument(
         "--document_encoding_style",
         choices=DOCUMENT_ENCODING_FUNCTIONS.keys(),
         default="file_name_and_contents",
     )
     parser.add_argument("--output_dir", default="./retreival_results")
-    parser.add_argument("--splits", nargs="+", default=["train", "test"])
-    parser.add_argument("--shard_id", type=int)
-    parser.add_argument("--num_shards", type=int, default=20)
-    parser.add_argument("--leave_indexes", type=string_to_bool, default=True)
     args = parser.parse_args()
-    main(**vars(args))
+    run_bm25(**vars(args))

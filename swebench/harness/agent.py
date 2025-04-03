@@ -4,6 +4,7 @@ from swebench.harness.constants.swing_constants import(
     AgentState,
     SwingbenchInstance
 )
+from swebench.inference.make_datasets.bm25_retrieval import run_bm25
 
 OPENAI_LIST = ["gpt-3.5-turbo", "gpt-4", "gpt-4o", "gpt-4.5-preview",
                "/home/mnt/wdxu/models/DeepSeek-R1-Distill-Qwen-7B"]
@@ -47,6 +48,19 @@ class Retriever:
 
         """
         pass
+
+    def bm25_retrieve(self, dataset_name_or_path: str, file_name: str, document_encoding_style: str, output_dir: str):
+        """
+        BM25 retrieve.
+
+        Args:
+            dataset_name_or_path: dataset to use for test set from HuggingFace Datasets or path to a save_to_disk directory
+            file_name: temporary data file to debug
+            document_encoding_style: the function to build a document
+            output_dir: the output directory to save the retrieved results
+
+        """
+        run_bm25(dataset_name_or_path, file_name, document_encoding_style, output_dir)
 
 
 class Verifier:
