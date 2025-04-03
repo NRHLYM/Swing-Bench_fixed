@@ -186,6 +186,6 @@ if __name__ == "__main__":
     model_base_url = "http://localhost:8200/v1"
     for swing_instance in dataset:
         response = agent.generate_patch(model_base_url, swing_instance)
-        print(response)
+        print('patch reponse', response.choices[0].message.content)
         response = agent.generate_test(model_base_url, swing_instance)
-        print(response)
+        print('test reponse', response.choices[0].message.content)
