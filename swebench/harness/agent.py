@@ -1,7 +1,8 @@
 import os
 from openai import OpenAI
 from swebench.harness.constants.swing_constants import(
-    AgentState
+    AgentState,
+    SwingbenchInstance
 )
 
 OPENAI_LIST = ["gpt-3.5-turbo", "gpt-4", "gpt-4o", "gpt-4.5-preview"]
@@ -27,6 +28,7 @@ GENERATE_PATCH_TEMPLATE = "You are required to write a patch for the specified i
 GENERATE_TEST_SYSTEM_MESSAGE = "You are an AI Test Automation Engineer specializing in generating unit tests for code patches."
 GENERATE_TEST_TEMPLATE = "You are required to develop unit tests for the specified patch, which was created to resolve this issue. " \
                           "The issue details: {issue} " \
+                          "The code snippet: {code_snippset} " \
                           "The patch: {patch} " \
                           "The test case sample: {sample} "
 
@@ -34,7 +36,7 @@ class Retriever:
     def __init__(self):
         pass
 
-    def retrieve(self, codebase, query):
+    def retrieve(self, codebase: str, query: str):
         """
         Retrieve target code snippset from codebase.
 
@@ -45,11 +47,12 @@ class Retriever:
         """
         pass
 
+
 class Verifier:
     def __init__(self):
         pass
 
-    def verify_patch(self, data, patch, test=None):
+    def verify_patch(self, data: SwingbenchInstance, patch: str, test: str = None):
         """
         Patch verifier.
 
@@ -61,7 +64,7 @@ class Verifier:
         """
         pass
 
-    def verify_test(self, data, test):
+    def verify_test(self, data: SwingbenchInstance, test: str):
         """
         Test verifier.
 
@@ -69,10 +72,16 @@ class Verifier:
             data (SwingbenchInstance): a piece of data from dataset
             test: test string? temporary test file?
         """
-        pass
+        if os.path.exists(test):
+            # test is a file
+            pass
+        else:
+            # test is a string
+            pass
+
 
 class AgentProxy:
-    def __init__(self, name):
+    def __init__(self, name: str):
         """
         Initialize agent proxy.
 
@@ -94,7 +103,7 @@ class AgentProxy:
             self.call_openai(prompt, state)
         # TODO: offline server
 
-    def call_openai(self, base_url, prompt, state):
+    def call_openai(self, base_url: str, prompt: str, state: AgentState):
         """
         Openai interface.
 
@@ -125,34 +134,41 @@ class AgentProxy:
                     {"role": "user", "content": prompt},
                 ],
             )
-        print(response)
-        
-    def generate_patch(self, data):
+        return response
+
+    def generate_patch(self, data: SwingbenchInstance):
         """
         Patch generater.
 
         Args:
             data (SwingbenchInstance): a piece of data from dataset
         """
-        issue = None
-        code_snippset = None
-        prompt = None
+        issue = data.problem_statement + "\n" + data.hints_text
+        code_snippset = data.related_code_snippset
+
+        prompt = GENERATE_PATCH_TEMPLATE.format(issue=issue, code_snippset=code_snippset)
+        
         return self.call_api(prompt, AgentState.PATCH)
 
-    def generate_test(self, data):
+    def generate_test(self, data: SwingbenchInstance):
         """
         Test generater.
 
         Args:
             data (SwingbenchInstance): a piece of data from dataset
         """
-        issue = None
-        patch = None
-        prompt = None
+        issue = data.problem_statement + "\n" + data.hints_text
+        code_snippset = data.related_code_snippset
+        patch = data.patch
+        sample = data.test_patch
+
+        prompt = GENERATE_TEST_TEMPLATE.format(issue=issue, code_snippset=code_snippset, patch=patch, sample=sample)
+
         return self.call_api(prompt, AgentState.TEST)
 
 
 if __name__ == "__main__":
     # http://localhost:8200/v1
     agent = AgentProxy("/home/mnt/wdxu/models/DeepSeek-R1-Distill-Qwen-7B")
-    agent.call_openai("http://localhost:8200/v1", "Hello, world!", AgentState.PATCH)
+    response = agent.call_openai("http://localhost:8200/v1", "Hello, world!", AgentState.PATCH)
+    print(response)

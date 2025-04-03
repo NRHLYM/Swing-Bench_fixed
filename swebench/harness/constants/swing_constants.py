@@ -26,6 +26,8 @@ class SwingbenchInstance:
     merge_commit_sha: str
     ci_name_list: list[str]
 
+    # for generate_patch by agent. get this from retriever. default is None.
+    related_code_snippset: str = None
 
 # Constants - Test Types, Statuses, Commands
 FAIL_TO_PASS = "FAIL_TO_PASS"
