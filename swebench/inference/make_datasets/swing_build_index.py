@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Dict, List, Set
 from git import Repo
 from tqdm import tqdm
+import shutil
 
 from swebench.harness.constants.swing_constants import SwingbenchInstance
 
@@ -26,8 +27,9 @@ def extract_repo_commits(dataset_path: str) -> Dict[str, Set[str]]:
     
     return repo_commits
 
+
 def clone_repo(repo: str, root_dir: str, token: str) -> Path:
-    repo_dir = Path(root_dir) / f"repo__{repo.replace('/', '__')}"
+    repo_dir = Path(root_dir) / f"repo_{repo.replace('/', '_')}"
     
     if not repo_dir.exists():
         repo_url = f"https://{token}@github.com/{repo}.git"
@@ -35,6 +37,7 @@ def clone_repo(repo: str, root_dir: str, token: str) -> Path:
         Repo.clone_from(repo_url, repo_dir)
     
     return repo_dir
+
 
 def build_documents(repo_dir: Path, commit: str, document_encoding_func) -> Dict[str, str]:
     documents = {}
@@ -58,11 +61,13 @@ def build_documents(repo_dir: Path, commit: str, document_encoding_func) -> Dict
     
     return documents
 
+
 def file_name_and_contents(filename: Path, relative_path: str) -> str:
     text = relative_path + "\n"
     with open(filename) as f:
         text += f.read()
     return text
+
 
 def file_name_and_documentation(filename: Path, relative_path: str) -> str:
     import ast
@@ -84,10 +89,12 @@ def file_name_and_documentation(filename: Path, relative_path: str) -> str:
             text += f.read()
     return text
 
+
 DOCUMENT_ENCODING_FUNCTIONS = {
     "file_name_and_contents": file_name_and_contents,
     "file_name_and_documentation": file_name_and_documentation,
 }
+
 
 def build_repo_index(
     repo: str,
@@ -99,7 +106,7 @@ def build_repo_index(
 ):
     document_encoding_func = DOCUMENT_ENCODING_FUNCTIONS[document_encoding_style]
     
-    index_root = Path(root_dir) / repo.replace('/', '__') / document_encoding_style
+    index_root = Path(root_dir) / repo.replace('/', '_') / document_encoding_style
     index_root.mkdir(parents=True, exist_ok=True)
     
     repo_dir = clone_repo(repo, root_dir, token)
@@ -147,6 +154,11 @@ def build_repo_index(
             logger.error(str(e))
             continue
 
+    if os.path.exists(repo_dir):
+        print(f'Remove finished {repo_dir}.')
+        shutil.rmtree(repo_dir)
+
+
 def main():
     import argparse
     parser = argparse.ArgumentParser()
@@ -175,6 +187,7 @@ def main():
             token=token
         )
 
+
 if __name__ == "__main__":
-    # python swing_build_index.py --dataset_path /mnt/Data/wdxu/github/Swing-Bench/tmpdata/dataset.json
-    main() 
+    # python swing_build_index.py --dataset_path /mnt/Data/wdxu/github/Swing-Bench/tmpdata/dataset.json --output_dir /mnt/Data/wdxu/github/Swing-Bench/tmpdata/indexes
+    main()

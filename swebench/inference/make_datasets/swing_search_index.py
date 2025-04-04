@@ -24,7 +24,7 @@ def search_instance(
     
     index_path = (
         index_root / 
-        repo.replace('/', '__') / 
+        repo.replace('/', '_') / 
         document_encoding_style /
         commit /
         "index"
@@ -55,8 +55,18 @@ def search_instance(
         
         results = {
             "instance_id": instance.instance_id,
-            "hits": [{"docid": hit.docid, "score": hit.score} for hit in hits]
+            "hits": []
         }
+        
+        for hit in hits:
+            raw_doc = json.loads(searcher.doc(hit.docid).raw())
+            results["hits"].append({
+                "docid": hit.docid,
+                "score": hit.score,
+                "contents": raw_doc.get("contents", ""),
+                "relative_path": raw_doc.get("id", "")
+            })
+            
         return results
         
     except Exception as e:
@@ -64,7 +74,27 @@ def search_instance(
         logger.error(str(e))
         return None
 
-def main():
+
+def main(debug: bool = False):
+    """_summary_
+
+    Returns:
+        dict: {instance_id: retrieved results}
+        
+        JSONL format:
+        {
+            "instance_id": instance_id,
+            "hits": [
+                {
+                    "docid": docid (path/file.ext),
+                    "score": score,
+                    "contents": contents,
+                    "relative_path": relative_path
+                },
+                ...
+            ]
+        }
+    """
     parser = ArgumentParser()
     parser.add_argument("--instances_file", type=str, required=True,
                       help="Path to the dataset.json file")
@@ -73,7 +103,7 @@ def main():
     parser.add_argument("--document_encoding_style",
                       choices=["file_name_and_contents", "file_name_and_documentation"],
                       default="file_name_and_contents")
-    parser.add_argument("--output_file", type=str, required=True,
+    parser.add_argument("--output_file_for_debug", type=str, default=None,
                       help="Output file to store search results")
     args = parser.parse_args()
     
@@ -83,7 +113,18 @@ def main():
             instances.append(SwingbenchInstance(**json.loads(line)))
     
     index_root = Path(args.index_dir)
-    with open(args.output_file, "w") as out_f:
+    if debug:
+        with open(args.output_file_for_debug, "w") as out_f:
+            for instance in tqdm(instances, desc="Searching"):
+                results = search_instance(
+                    instance,
+                    index_root,
+                    args.document_encoding_style
+                )
+                if results:
+                        print(json.dumps(results), flush=True)
+    else:
+        results_dir = {}
         for instance in tqdm(instances, desc="Searching"):
             results = search_instance(
                 instance,
@@ -91,12 +132,19 @@ def main():
                 args.document_encoding_style
             )
             if results:
-                print(json.dumps(results), file=out_f, flush=True)
+                results_dir[instance.instance_id] = results
+        return results_dir
+
 
 if __name__ == "__main__":
-    # python search_index.py \
-    # --instances_file /mnt/Data/wdxu/github/Swing-Bench/tmpdata/dataset.json \
-    # --index_dir ./indexes \
-    # --document_encoding_style file_name_and_contents \
-    # --output_file results.jsonl
-    main()
+    """
+    python swing_search_index.py \
+        --instances_file /mnt/Data/wdxu/github/Swing-Bench/tmpdata/dataset.json \
+        --index_dir /mnt/Data/wdxu/github/Swing-Bench/tmpdata/indexes \
+        --document_encoding_style file_name_and_contents \
+        --output_file_for_debug results.jsonl
+    """
+    main(debug=True)
+    # result = main(debug=False)
+    # for each in result:
+    #     print(each, result[each])
