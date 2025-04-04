@@ -12,7 +12,9 @@ from swebench.inference.make_datasets.swing_search_index import search_instance
 OPENAI_LIST = ["gpt-3.5-turbo", "gpt-4", "gpt-4o", "gpt-4.5-preview",
                "/home/mnt/wdxu/models/DeepSeek-R1-Distill-Qwen-7B",
                "/home/mnt/wdxu/models/Qwen2.5-Coder-14B-Instruct",
-               "/home/mnt/wdxu/models/Qwen2.5-Coder-32B-Instruct"]
+               "/home/mnt/wdxu/models/Qwen2.5-Coder-32B-Instruct",
+               "/app/wdxu/models/Qwen2.5-Coder-32B",
+               "/app/wdxu/models/DeepSeek-R1-Distill-Qwen-32B"]
 
 MODEL_LIMITS = {
     # "claude-instant-1": 100_000,
@@ -27,13 +29,15 @@ MODEL_LIMITS = {
 }
 
 # change to a more efficient template
-GENERATE_PATCH_SYSTEM_MESSAGE = "You are an AI Senior Full-Stack Engineer specialized in GitHub issue triage and bug fixing."
-GENERATE_PATCH_TEMPLATE = "You are required to write a patch for the specified issue and its corresponding code section. " \
+GENERATE_PATCH_SYSTEM_MESSAGE = "You are an AI Senior Full-Stack Engineer specialized in GitHub issue triage and bug fixing." \
+                                "You should only generate the patch code, without any other text. Provide the .patch format code that could be `git apply` to the original code."
+GENERATE_PATCH_TEMPLATE = "You are required to write a patch for the specified issue and its corresponding code section." \
                           "The issue details: {issue} " \
                           "The code snippet: {code_snippset} "
 # change to a more efficient template
-GENERATE_TEST_SYSTEM_MESSAGE = "You are an AI Test Automation Engineer specializing in generating unit tests for code patches."
-GENERATE_TEST_TEMPLATE = "You are required to develop unit tests for the specified patch, which was created to resolve this issue. " \
+GENERATE_TEST_SYSTEM_MESSAGE = "You are an AI Test Automation Engineer specializing in generating unit tests for code patches." \
+                                "You should only generate the test code, without any other text. Provide the .patch format code that could be `git apply` to original code or create a new test file."
+GENERATE_TEST_TEMPLATE = "You are required to develop unit tests for the specified patch, which was created to resolve this issue." \
                           "The issue details: {issue} " \
                           "The code snippet: {code_snippset} " \
                           "The patch: {patch} " \
@@ -211,7 +215,8 @@ if __name__ == "__main__":
     dataset = swing_utils.load_swingbench_dataset(dataset_jsonl_path)
     index_dir = '/mnt/Data/wdxu/github/Swing-Bench/tmpdata/indexes'
 
-    model_info = ModelInfo(name="/home/mnt/wdxu/models/Qwen2.5-Coder-32B-Instruct", base_url="http://localhost:8000/v1")
+    # model_info = ModelInfo(name="/home/mnt/wdxu/models/Qwen2.5-Coder-14B-Instruct", base_url="http://localhost:8000/v1")
+    model_info = ModelInfo(name="/app/wdxu/models/Qwen2.5-Coder-32B", base_url="http://147.8.182.54:10000/v1")
     agent = AgentProxy(model_info)
 
     retriever = BM25DiskRetriever(index_dir=index_dir)
