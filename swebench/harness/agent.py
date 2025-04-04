@@ -72,35 +72,39 @@ class BM25DiskRetriever(Retriever):
 
 
 class Verifier:
+    @abstractmethod
+    def __init__(self):
+        raise NotImplementedError
+
+    @abstractmethod
+    def _extract_patch(self, input: str):
+        raise NotImplementedError
+
+    @abstractmethod
+    def verify(self, data: SwingbenchInstance, input: str):
+        raise NotImplementedError
+
+
+class PatchVerifier(Verifier):
     def __init__(self):
         pass
 
-    def verify_patch(self, data: SwingbenchInstance, patch: str, test: str = None):
-        """
-        Patch verifier.
-
-        Args:
-            data (SwingbenchInstance): a piece of data from dataset
-            patch: patch string? temporary patch file?
-            test: test string? temporary test file?
-        
-        """
+    def _extract_patch(self, input: str):
         pass
 
-    def verify_test(self, data: SwingbenchInstance, test: str):
-        """
-        Test verifier.
+    def verify(self, data: SwingbenchInstance, input: str):
+        patch = self._extract_patch(input)
 
-        Args:
-            data (SwingbenchInstance): a piece of data from dataset
-            test: test string? temporary test file?
-        """
-        if os.path.exists(test):
-            # test is a file
-            pass
-        else:
-            # test is a string
-            pass
+
+class TestVerifier(Verifier):
+    def __init__(self):
+        pass
+
+    def _extract_patch(self, input: str):
+        pass
+
+    def verify(self, data: SwingbenchInstance, input: str):
+        patch = self._extract_patch(input)
 
 
 class ModelInfo:
@@ -186,7 +190,7 @@ class AgentProxy:
             # get code_snippset from retriever
             code_snippset = retriever.retrieve(data)
         prompt = GENERATE_PATCH_TEMPLATE.format(issue=issue, code_snippset=code_snippset)
-        
+
         return self._call_api(prompt, AgentState.PATCH)
 
     def generate_test(self, data: SwingbenchInstance, retriever: Retriever):
@@ -210,22 +214,29 @@ class AgentProxy:
 
 
 if __name__ == "__main__":
+    DEBUG_VERIFIER = False
+
     import swing_utils
     dataset_jsonl_path = '/mnt/Data/wdxu/github/Swing-Bench/tmpdata/dataset.json'
     dataset = swing_utils.load_swingbench_dataset(dataset_jsonl_path)
     index_dir = '/mnt/Data/wdxu/github/Swing-Bench/tmpdata/indexes'
 
     # model_info = ModelInfo(name="/home/mnt/wdxu/models/Qwen2.5-Coder-14B-Instruct", base_url="http://localhost:8000/v1")
-    model_info = ModelInfo(name="/app/wdxu/models/Qwen2.5-Coder-32B", base_url="http://147.8.182.54:10000/v1")
+    model_info = ModelInfo(name="/app/wdxu/models/DeepSeek-R1-Distill-Qwen-32B", base_url="http://147.8.182.54:10000/v1")
     agent = AgentProxy(model_info)
 
     retriever = BM25DiskRetriever(index_dir=index_dir)
 
-    for swing_instance in dataset:
-        response = agent.generate_patch(swing_instance, retriever)
-        print('patch reponse', response.choices[0].message.content)
-        response = agent.generate_test(swing_instance, retriever)
-        print('test reponse', response.choices[0].message.content)
+    if not DEBUG_VERIFIER:
+        for swing_instance in dataset:
+            response = agent.generate_patch(swing_instance, retriever)
+            print('patch response', response.choices[0].message.content)
+            response = agent.generate_test(swing_instance, retriever)
+            print('test response', response.choices[0].message.content)
 
         # results = retriever.retrieve(swing_instance)
         # print('retrieved instance id {} results {}'.format(swing_instance.instance_id, results))
+
+    # debug verifier
+    else:
+        verifier = Verifier()
