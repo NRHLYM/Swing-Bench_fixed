@@ -9,7 +9,7 @@ from swebench.harness.constants.swing_constants import(
 )
 from swebench.inference.make_datasets.swing_search_index import search_instance
 from swebench.harness.router import CIToolBase
-from swebench.harness.constants.constants import HANDLER
+from swebench.harness.router import HANDLER
 
 OPENAI_LIST = ["gpt-3.5-turbo", "gpt-4", "gpt-4o", "gpt-4.5-preview",
                "/home/mnt/wdxu/models/DeepSeek-R1-Distill-Qwen-7B",
