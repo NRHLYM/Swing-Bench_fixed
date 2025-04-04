@@ -10,7 +10,9 @@ from swebench.harness.constants.swing_constants import(
 from swebench.inference.make_datasets.swing_search_index import search_instance
 
 OPENAI_LIST = ["gpt-3.5-turbo", "gpt-4", "gpt-4o", "gpt-4.5-preview",
-               "/home/mnt/wdxu/models/DeepSeek-R1-Distill-Qwen-7B"]
+               "/home/mnt/wdxu/models/DeepSeek-R1-Distill-Qwen-7B",
+               "/home/mnt/wdxu/models/Qwen2.5-Coder-14B-Instruct",
+               "/home/mnt/wdxu/models/Qwen2.5-Coder-32B-Instruct"]
 
 MODEL_LIMITS = {
     # "claude-instant-1": 100_000,
@@ -57,7 +59,8 @@ class BM25DiskRetriever(Retriever):
         results = search_instance(
             instance,
             self.index_dir,
-            self.document_encoding_style
+            self.document_encoding_style,
+            k=1
         )
         # TODO(wdxu): need some reduce strategies
         
@@ -147,8 +150,9 @@ class AgentProxy:
         if state == AgentState.PATCH:
             response = client.chat.completions.create(
                 model=self.model_info.name,
+                # TODO(wdxu): need to designe a message passer.
                 messages=[
-                    {"role": "developer", "content": GENERATE_PATCH_SYSTEM_MESSAGE},
+                    {"role": "system", "content": GENERATE_PATCH_SYSTEM_MESSAGE},
                     {"role": "user", "content": prompt},
                 ],
             )
@@ -156,7 +160,7 @@ class AgentProxy:
             response = client.chat.completions.create(
                 model=self.model_info.name,
                 messages=[
-                    {"role": "developer", "content": GENERATE_TEST_SYSTEM_MESSAGE},
+                    {"role": "system", "content": GENERATE_TEST_SYSTEM_MESSAGE},
                     {"role": "user", "content": prompt},
                 ],
             )
@@ -207,7 +211,7 @@ if __name__ == "__main__":
     dataset = swing_utils.load_swingbench_dataset(dataset_jsonl_path)
     index_dir = '/mnt/Data/wdxu/github/Swing-Bench/tmpdata/indexes'
 
-    model_info = ModelInfo(name="/home/mnt/wdxu/models/DeepSeek-R1-Distill-Qwen-7B", base_url="http://localhost:8200/v1")
+    model_info = ModelInfo(name="/home/mnt/wdxu/models/Qwen2.5-Coder-32B-Instruct", base_url="http://localhost:8000/v1")
     agent = AgentProxy(model_info)
 
     retriever = BM25DiskRetriever(index_dir=index_dir)
