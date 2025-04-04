@@ -1,10 +1,13 @@
 import os
+
+from abc import ABC, abstractmethod
+from pathlib import Path
 from openai import OpenAI
 from swebench.harness.constants.swing_constants import(
     AgentState,
     SwingbenchInstance
 )
-from swebench.inference.make_datasets.bm25_retrieval import run_bm25
+from swebench.inference.make_datasets.swing_search_index import search_instance
 
 OPENAI_LIST = ["gpt-3.5-turbo", "gpt-4", "gpt-4o", "gpt-4.5-preview",
                "/home/mnt/wdxu/models/DeepSeek-R1-Distill-Qwen-7B"]
@@ -34,33 +37,31 @@ GENERATE_TEST_TEMPLATE = "You are required to develop unit tests for the specifi
                           "The patch: {patch} " \
                           "The test case sample: {sample} "
 
+
 class Retriever:
+    @abstractmethod
     def __init__(self):
-        pass
+        raise NotImplementedError("Retriever is not implemented yet.")
 
-    def retrieve(self, codebase: str, query: str):
-        """
-        Retrieve target code snippset from codebase.
+    @abstractmethod
+    def retrieve(self, instance: SwingbenchInstance):
+        raise NotImplementedError("Retrieve is not implemented yet.")
 
-        Args:
-            codebase: 
-            query: 
 
-        """
-        pass
+class BM25DiskRetriever(Retriever):
+    def __init__(self, index_dir: str, document_encoding_style: str = "file_name_and_contents"):
+        self.index_dir = Path(index_dir)
+        self.document_encoding_style = document_encoding_style
 
-    def bm25_retrieve(self, dataset_name_or_path: str, file_name: str, document_encoding_style: str, output_dir: str):
-        """
-        BM25 retrieve.
-
-        Args:
-            dataset_name_or_path: dataset to use for test set from HuggingFace Datasets or path to a save_to_disk directory
-            file_name: temporary data file to debug
-            document_encoding_style: the function to build a document
-            output_dir: the output directory to save the retrieved results
-
-        """
-        run_bm25(dataset_name_or_path, file_name, document_encoding_style, output_dir)
+    def retrieve(self, instance: SwingbenchInstance):
+        results = search_instance(
+            instance,
+            self.index_dir,
+            self.document_encoding_style
+        )
+        # TODO(wdxu): need some reduce strategies
+        
+        return results
 
 
 class Verifier:
@@ -164,7 +165,7 @@ class AgentProxy:
     def _call_offline(self):
         raise NotImplementedError("Offline server is not implemented yet.")
 
-    def generate_patch(self, data: SwingbenchInstance):
+    def generate_patch(self, data: SwingbenchInstance, retriever: Retriever = None):
         """
         Patch generater.
 
@@ -172,13 +173,15 @@ class AgentProxy:
             data (SwingbenchInstance): a piece of data from dataset
         """
         issue = data.problem_statement + "\n" + data.hints_text
-        code_snippset = data.related_code_snippset
-
+        code_snippset = None
+        if retriever is not None:
+            # get code_snippset from retriever
+            code_snippset = retriever.retrieve(data)
         prompt = GENERATE_PATCH_TEMPLATE.format(issue=issue, code_snippset=code_snippset)
         
         return self._call_api(prompt, AgentState.PATCH)
 
-    def generate_test(self, data: SwingbenchInstance):
+    def generate_test(self, data: SwingbenchInstance, retriever: Retriever):
         """
         Test generater.
 
@@ -186,9 +189,12 @@ class AgentProxy:
             data (SwingbenchInstance): a piece of data from dataset
         """
         issue = data.problem_statement + "\n" + data.hints_text
-        code_snippset = data.related_code_snippset
         patch = data.patch
         sample = data.test_patch
+        code_snippset = None
+        if retriever is not None:
+            # get code_snippset from retriever
+            code_snippset = retriever.retrieve(data)
 
         prompt = GENERATE_TEST_TEMPLATE.format(issue=issue, code_snippset=code_snippset, patch=patch, sample=sample)
 
@@ -199,12 +205,18 @@ if __name__ == "__main__":
     import swing_utils
     dataset_jsonl_path = '/mnt/Data/wdxu/github/Swing-Bench/tmpdata/dataset.json'
     dataset = swing_utils.load_swingbench_dataset(dataset_jsonl_path)
+    index_dir = '/mnt/Data/wdxu/github/Swing-Bench/tmpdata/indexes'
 
     model_info = ModelInfo(name="/home/mnt/wdxu/models/DeepSeek-R1-Distill-Qwen-7B", base_url="http://localhost:8200/v1")
     agent = AgentProxy(model_info)
 
+    retriever = BM25DiskRetriever(index_dir=index_dir)
+
     for swing_instance in dataset:
-        response = agent.generate_patch(swing_instance)
+        response = agent.generate_patch(swing_instance, retriever)
         print('patch reponse', response.choices[0].message.content)
-        response = agent.generate_test(swing_instance)
+        response = agent.generate_test(swing_instance, retriever)
         print('test reponse', response.choices[0].message.content)
+
+        # results = retriever.retrieve(swing_instance)
+        # print('retrieved instance id {} results {}'.format(swing_instance.instance_id, results))
