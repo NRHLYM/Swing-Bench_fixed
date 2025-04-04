@@ -8,6 +8,8 @@ from swebench.harness.constants.swing_constants import(
     SwingbenchInstance
 )
 from swebench.inference.make_datasets.swing_search_index import search_instance
+from swebench.harness.router import CIToolBase
+from swebench.harness.constants.constants import HANDLER
 
 OPENAI_LIST = ["gpt-3.5-turbo", "gpt-4", "gpt-4o", "gpt-4.5-preview",
                "/home/mnt/wdxu/models/DeepSeek-R1-Distill-Qwen-7B",
@@ -73,7 +75,7 @@ class BM25DiskRetriever(Retriever):
 
 class Verifier:
     @abstractmethod
-    def __init__(self):
+    def __init__(self, ci_tool: CIToolBase):
         raise NotImplementedError
 
     @abstractmethod
@@ -86,19 +88,43 @@ class Verifier:
 
 
 class PatchVerifier(Verifier):
-    def __init__(self):
-        pass
+    def __init__(self, ci_tool_name: str):
+        self.ci_tool_name = ci_tool_name
 
     def _extract_patch(self, input: str):
-        pass
+        import re
+        
+        code_block_patterns = [
+            r'```patch\n(.*?)```',
+            r'```diff\n(.*?)```',
+            r'```[a-zA-Z0-9_+-]*\n(.*?)```'
+        ]
+
+        for pattern in code_block_patterns:
+            matches = re.findall(pattern, input, re.DOTALL)
+            if matches:
+                patch_content = matches[0].strip()
+                if not patch_content.startswith('diff --git') and not patch_content.startswith('---'):
+                    if not patch_content.startswith('---'):
+                        file_match = re.search(r'file[:：]\s*([^\n]+)', input)
+                        if file_match:
+                            filename = file_match.group(1).strip()
+                            patch_content = f"--- a/{filename}\n+++ b/{filename}\n{patch_content}"
+                
+                return patch_content
+
+        return input.strip()
 
     def verify(self, data: SwingbenchInstance, input: str):
         patch = self._extract_patch(input)
+        new_data = data.copy()
+        new_data.patch = patch
+        # HANDLER[self.ci_tool_name]()
 
 
 class TestVerifier(Verifier):
-    def __init__(self):
-        pass
+    def __init__(self, ci_tool: CIToolBase):
+        self.ci_tool = ci_tool
 
     def _extract_patch(self, input: str):
         pass

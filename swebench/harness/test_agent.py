@@ -1,4 +1,17 @@
-# import swebench.harness.agent as agent
+import swebench.harness.agent as agent
+import swing_utils
+
+from swebench.harness.router import HANDLER
+
+def test_patch_verifier(patch_response_list):
+    dataset_jsonl_path = '/mnt/Data/wdxu/github/Swing-Bench/tmpdata/dataset.json'
+    patch_verifier = agent.PatchVerifier(ci_tool=HANDLER['act'])
+    dataset = swing_utils.load_swingbench_dataset(dataset_jsonl_path)
+
+    for instance in dataset:
+        # the instance may not match the patch response.
+        patch_verifier.verify(instance, patch_response_list[0])
+        break
 
 
 if __name__ == "__main__":
@@ -13,10 +26,10 @@ if __name__ == "__main__":
         concatenated_text = [item for item in concatenated_text if item.strip()]
         for txt in concatenated_text:
             patch_response, test_response = txt.split('test response')
-            if '```patch' not in test_response:
-                print(test_response)
             patch_response_list.append(patch_response)
             test_response_list.append(test_response)
 
     # print(patch_response_list[0])
     # print(test_response_list[0])
+
+    test_patch_verifier(patch_response_list)
