@@ -14,18 +14,18 @@ RUN_VALIDATION_LOG_DIR = Path("logs/run_validation")
 @dataclass
 class SwingbenchInstance:
     repo: str
-    pull_number: int
     instance_id: str
-    issue_numbers: int
     base_commit: str
     patch: str
     test_patch: str
     problem_statement: str
     hints_text: str
-    created_at: str
-    merge_commit_sha: str
-    ci_name_list: list[str]
-
+    created_at: str = None
+    pull_number: int = None
+    issue_numbers: int = None
+    merge_commit_sha: str = None
+    ci_name_list: list[str] = None
+   
 # Constants - Test Types, Statuses, Commands
 FAIL_TO_PASS = "FAIL_TO_PASS"
 FAIL_TO_FAIL = "FAIL_TO_FAIL"

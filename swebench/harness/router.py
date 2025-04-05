@@ -197,7 +197,7 @@ class CargoCITool(CIToolBase):
         )
         
         subprocess.run(
-            [env_script_path], 
+            ['bash', env_script_path], 
             check=True,
             # cwd=cwd,
             stdout=subprocess.DEVNULL,

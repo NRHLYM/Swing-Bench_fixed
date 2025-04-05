@@ -1,5 +1,5 @@
 import os
-
+import copy
 from abc import ABC, abstractmethod
 from pathlib import Path
 from openai import OpenAI
@@ -16,7 +16,8 @@ OPENAI_LIST = ["gpt-3.5-turbo", "gpt-4", "gpt-4o", "gpt-4.5-preview",
                "/home/mnt/wdxu/models/Qwen2.5-Coder-14B-Instruct",
                "/home/mnt/wdxu/models/Qwen2.5-Coder-32B-Instruct",
                "/app/wdxu/models/Qwen2.5-Coder-32B",
-               "/app/wdxu/models/DeepSeek-R1-Distill-Qwen-32B"]
+               "/app/wdxu/models/DeepSeek-R1-Distill-Qwen-32B",
+               "glm-4-flash"]
 
 MODEL_LIMITS = {
     # "claude-instant-1": 100_000,
@@ -28,23 +29,89 @@ MODEL_LIMITS = {
     "gpt-4": 8_192,
     "gpt-4o": 128_000,
     "gpt-4.5-preview": 128_000,
-    "public-glm-4-plus": 32_768,
+    "glm-4-flash": 32_768,
 }
 
 # change to a more efficient template
 GENERATE_PATCH_SYSTEM_MESSAGE = "You are an AI Senior Full-Stack Engineer specialized in GitHub issue triage and bug fixing." \
-                                "You should only generate the patch code, without any other text. Provide the .patch format code that could be `git apply` to the original code."
-GENERATE_PATCH_TEMPLATE = "You are required to write a patch for the specified issue and its corresponding code section." \
-                          "The issue details: {issue} " \
-                          "The code snippet: {code_snippset} "
-# change to a more efficient template
-GENERATE_TEST_SYSTEM_MESSAGE = "You are an AI Test Automation Engineer specializing in generating unit tests for code patches." \
-                                "You should only generate the test code, without any other text. Provide the .patch format code that could be `git apply` to original code or create a new test file."
-GENERATE_TEST_TEMPLATE = "You are required to develop unit tests for the specified patch, which was created to resolve this issue." \
-                          "The issue details: {issue} " \
-                          "The code snippet: {code_snippset} " \
-                          "The patch: {patch} " \
-                          "The test case sample: {sample} "
+                                "You should only generate the fixed code, without any other text or markdown formatting."
+GENERATE_PATCH_TEMPLATE = "You are required to fix the code for the specified issue.\n" \
+                          "The issue details: {issue}\n" \
+                          "The code snippet: {code_snippset}\n" \
+                          "Please provide the complete fixed code without any explanations or markdown."
+
+GENERATE_TEST_SYSTEM_MESSAGE = "You are an AI Test Automation Engineer specializing in generating unit tests." \
+                                "You should only generate the test code, without any other text or markdown formatting."
+GENERATE_TEST_TEMPLATE = "You are required to develop unit tests for the specified code and its fix.\n" \
+                          "The issue details: {issue}\n" \
+                          "The code snippet: {code_snippset}\n" \
+                          "The fixed code: {patch}\n" \
+                          "The test case sample: {sample}\n" \
+                          "Please provide the complete test code without any explanations or markdown."
+
+def create_patch_from_diff(original_code: str, fixed_code: str, file_path: str) -> str:
+    """Create a git patch from two versions of code."""
+    import tempfile
+    import subprocess
+    import os
+    
+    with tempfile.TemporaryDirectory() as temp_dir:
+        try:
+            # Create necessary directories
+            file_dir = os.path.dirname(os.path.join(temp_dir, file_path))
+            os.makedirs(file_dir, exist_ok=True)
+            
+            # Initialize git repo
+            os.chdir(temp_dir)
+            subprocess.run(["git", "init", "-q"], check=True)
+            subprocess.run(["git", "config", "user.name", "test"], check=True)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], check=True)
+            
+            # Create and add original file
+            with open(os.path.join(temp_dir, file_path), "w") as f:
+                f.write(original_code)
+            
+            subprocess.run(["git", "add", file_path], check=True)
+            subprocess.run(["git", "commit", "-m", "original", "-q"], check=True)
+            
+            # Create fixed version
+            with open(os.path.join(temp_dir, file_path), "w") as f:
+                f.write(fixed_code)
+            
+            # Get git diff
+            result = subprocess.run(
+                ["git", "diff", "--no-color"],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            return result.stdout if result.stdout else ""
+        except subprocess.CalledProcessError as e:
+            print(f"Error generating diff: {e}")
+            return ""
+        except Exception as e:
+            print(f"Unexpected error: {e}")
+            return ""
+
+def parse_testcase(source_code: str, file_path: str) -> str:
+    """Create a git patch for new test file."""
+    if not source_code.endswith("\n"):
+        source_code += "\n\n"
+    elif not source_code.endswith("\n\n"):
+        source_code += "\n"
+    
+    patch = [
+        f"diff --git a/{file_path} b/{file_path}",
+        "new file mode 100644",
+        "index 0000000..0000000",
+        f"--- /dev/null",
+        f"+++ b/{file_path}",
+        "@@ -0,0 +1,{} @@".format(len(source_code.splitlines()))
+    ]
+    lines = source_code.splitlines()
+    formatted_lines = [f"+{line.rstrip()}" for line in lines]
+    patch.extend(formatted_lines)
+    return "\n".join(patch)
 
 
 class Retriever:
@@ -89,36 +156,40 @@ class Verifier:
 
 
 class PatchVerifier(Verifier):
-    def __init__(self, ci_tool_name: str):
+    def __init__(self, ci_tool_name: str, workdir: str = "./testbed", output_dir: str = "./logs", src_folder: str = "./repos"):
         self.ci_tool_name = ci_tool_name
-
-    def _extract_patch(self, input: str):
-        import re
+        self.workdir = workdir
+        self.output_dir = output_dir
+        self.src_folder = src_folder
         
-        code_block_patterns = [
-            r'```patch\n(.*?)```',
-            r'```diff\n(.*?)```',
-            r'```[a-zA-Z0-9_+-]*\n(.*?)```'
-        ]
-
-        for pattern in code_block_patterns:
-            matches = re.findall(pattern, input, re.DOTALL)
-            if matches:
-                patch_content = matches[0].strip()
-                if not patch_content.startswith('diff --git') and not patch_content.startswith('---'):
-                    if not patch_content.startswith('---'):
-                        file_match = re.search(r'file[:：]\s*([^\n]+)', input)
-                        if file_match:
-                            filename = file_match.group(1).strip()
-                            patch_content = f"--- a/{filename}\n+++ b/{filename}\n{patch_content}"
+    def _extract_patch(self, input: str):
+        """Extract code from model output and create patch."""
+        # Remove any possible markdown code block
+        import re
+        code_block_pattern = r"```[^\n]*\n(.*?)```"
+        matches = re.findall(code_block_pattern, input, re.DOTALL)
+        if matches:
+            input = matches[0]
+            
+        # Get original code from the file
+        file_path = "src/lib.rs"  # This should be made configurable
+        try:
+            with open(os.path.join(self.src_folder, file_path)) as f:
+                original_code = f.read()
                 
-                return patch_content
-
-        return input.strip()
+            # Create patch from diff
+            patch = create_patch_from_diff(original_code, input.strip(), file_path)
+            if not patch:
+                print(f"Warning: Failed to create patch, falling back to direct code")
+                return input.strip()
+            return patch
+        except Exception as e:
+            print(f"Error reading original file: {e}")
+            return input.strip()
 
     def verify(self, data: SwingbenchInstance, input: str):
         patch = self._extract_patch(input)
-        new_data = data.copy()
+        new_data = copy.copy(data)
         new_data.patch = patch
         
         # Check if CI tools are available
@@ -132,8 +203,8 @@ class PatchVerifier(Verifier):
                     "base_commit": data.base_commit,
                     "merge_commit": data.merge_commit_sha,
                     "patch": patch,
-                    "workdir": f"./testbed/{data.instance_id}",
-                    "output_dir": "./logs",
+                    "workdir": f"{self.workdir}/{data.instance_id}",
+                    "output_dir": self.output_dir,
                     "apply_patch": True,
                     "ci_name_list": data.ci_name_list
                 }
@@ -143,7 +214,7 @@ class PatchVerifier(Verifier):
                 is_success = all(test.get('stepResult', '') == 'success' for test in result)
                 return {
                     "success": is_success,
-                    "tool": "ci",
+                    "tool": self.ci_tool_name,
                     "result": result,
                     "patch": patch
                 }
@@ -155,12 +226,12 @@ class PatchVerifier(Verifier):
             "base_commit": data.base_commit,
             "merge_commit": data.merge_commit_sha,
             "patch": patch,
-            "workdir": f"./testbed/{data.instance_id}",
-            "output_dir": "./logs",
+            "workdir": f"{self.workdir}/{data.instance_id}",
+            "output_dir": self.output_dir,
             "apply_patch": True,
             "src_folder": "/raid/rust-repos"
         })
-        log_file = f"./logs/{data.instance_id}.log"
+        log_file = f"{self.output_dir}/{data.instance_id}.log"
         result = cargo_tool.run_ci(log_file)
         # For Cargo, we consider it successful if returncode is 0 and all tests pass
         is_success = result.get('returncode', 1) == 0 and not result.get('test_results', {}).get('failed', [])
@@ -173,45 +244,39 @@ class PatchVerifier(Verifier):
 
 
 class TestVerifier(Verifier):
-    def __init__(self, ci_tool: CIToolBase):
+    def __init__(self, ci_tool: CIToolBase, workdir: str = "./testbed", output_dir: str = "./logs"):
         self.ci_tool = ci_tool
-
-    def _extract_patch(self, input: str):
-        import re
+        self.workdir = workdir
+        self.output_dir = output_dir
         
-        code_block_patterns = [
-            r'```patch\n(.*?)```',
-            r'```diff\n(.*?)```',
-            r'```[a-zA-Z0-9_+-]*\n(.*?)```'
-        ]
-
-        for pattern in code_block_patterns:
-            matches = re.findall(pattern, input, re.DOTALL)
-            if matches:
-                patch_content = matches[0].strip()
-                if not patch_content.startswith('diff --git') and not patch_content.startswith('---'):
-                    if not patch_content.startswith('---'):
-                        file_match = re.search(r'file[:：]\s*([^\n]+)', input)
-                        if file_match:
-                            filename = file_match.group(1).strip()
-                            patch_content = f"--- a/{filename}\n+++ b/{filename}\n{patch_content}"
-                
-                return patch_content
-
-        return input.strip()
+    def _extract_patch(self, input: str):
+        """Extract test code from model output and create patch."""
+        # Remove any possible markdown code block
+        import re
+        code_block_pattern = r"```[^\n]*\n(.*?)```"
+        matches = re.findall(code_block_pattern, input, re.DOTALL)
+        if matches:
+            input = matches[0]
+            
+        # Create patch for new test file
+        return parse_testcase(input.strip(), "tests/test_lib.rs")
 
     def verify(self, data: SwingbenchInstance, input: str):
         # Extract the test patch
         test_patch = self._extract_patch(input)
         
         # Create a copy of data with the test patch
-        new_data = data.copy()
+        new_data = copy.copy(data)
         new_data.test_patch = test_patch
         
         # Apply the golden patch first
         if hasattr(data, 'patch') and data.patch:
             # Use the same verification logic as PatchVerifier
-            patch_verifier = PatchVerifier(self.ci_tool.__class__.__name__.lower())
+            patch_verifier = PatchVerifier(
+                self.ci_tool.__class__.__name__.lower(), 
+                self.workdir, 
+                self.output_dir
+            )
             patch_result = patch_verifier.verify(data, data.patch)
             
             if not patch_result["success"]:
@@ -246,9 +311,10 @@ class TestVerifier(Verifier):
 
 
 class ModelInfo:
-    def __init__(self, name: str, base_url: str):
+    def __init__(self, name: str, base_url: str = None, api_key: str = None):
         self.name = name
         self.base_url = base_url
+        self.api_key = api_key
 
 
 class AgentProxy:
@@ -288,9 +354,8 @@ class AgentProxy:
             state (AgentState): the type of this prompt
         """
         # For local inference, we don't need an API key
-        api_key = os.environ.get("OPENAI_API_KEY", "not-needed")
         client = OpenAI(
-            api_key=api_key,
+            api_key=self.model_info.api_key,
             base_url=self.model_info.base_url,
         )
         if state == AgentState.PATCH:
