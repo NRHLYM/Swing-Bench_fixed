@@ -8,7 +8,7 @@ from swebench.harness.constants.swing_constants import(
     SwingbenchInstance
 )
 from swebench.inference.make_datasets.swing_search_index import search_instance
-from swebench.harness.router import CIToolBase
+from swebench.harness.router import CIToolBase, CargoCITool, DockerCITool, ActCITool
 from swebench.harness.router import HANDLER
 
 OPENAI_LIST = ["gpt-3.5-turbo", "gpt-4", "gpt-4o", "gpt-4.5-preview",
@@ -28,6 +28,7 @@ MODEL_LIMITS = {
     "gpt-4": 8_192,
     "gpt-4o": 128_000,
     "gpt-4.5-preview": 128_000,
+    "public-glm-4-plus": 32_768,
 }
 
 # change to a more efficient template
@@ -119,7 +120,56 @@ class PatchVerifier(Verifier):
         patch = self._extract_patch(input)
         new_data = data.copy()
         new_data.patch = patch
-        # HANDLER[self.ci_tool_name]()
+        
+        # Check if CI tools are available
+        if hasattr(data, 'ci_name_list') and data.ci_name_list:
+            # Use CI tool if available
+            ci_tool = HANDLER.get(self.ci_tool_name)
+            if ci_tool:
+                config = {
+                    "id": data.instance_id,
+                    "repo": data.repo,
+                    "base_commit": data.base_commit,
+                    "merge_commit": data.merge_commit_sha,
+                    "patch": patch,
+                    "workdir": f"./testbed/{data.instance_id}",
+                    "output_dir": "./logs",
+                    "apply_patch": True,
+                    "ci_name_list": data.ci_name_list
+                }
+                tool = ci_tool(config)
+                result = tool.run_ci()
+                # For CI tools, we consider it successful if all tests pass
+                is_success = all(test.get('stepResult', '') == 'success' for test in result)
+                return {
+                    "success": is_success,
+                    "tool": "ci",
+                    "result": result,
+                    "patch": patch
+                }
+        
+        # Fall back to Cargo tool if no CI tools available
+        cargo_tool = CargoCITool({
+            "id": data.instance_id,
+            "repo": data.repo,
+            "base_commit": data.base_commit,
+            "merge_commit": data.merge_commit_sha,
+            "patch": patch,
+            "workdir": f"./testbed/{data.instance_id}",
+            "output_dir": "./logs",
+            "apply_patch": True,
+            "src_folder": "/raid/rust-repos"
+        })
+        log_file = f"./logs/{data.instance_id}.log"
+        result = cargo_tool.run_ci(log_file)
+        # For Cargo, we consider it successful if returncode is 0 and all tests pass
+        is_success = result.get('returncode', 1) == 0 and not result.get('test_results', {}).get('failed', [])
+        return {
+            "success": is_success,
+            "tool": "cargo",
+            "result": result,
+            "patch": patch
+        }
 
 
 class TestVerifier(Verifier):
@@ -127,10 +177,72 @@ class TestVerifier(Verifier):
         self.ci_tool = ci_tool
 
     def _extract_patch(self, input: str):
-        pass
+        import re
+        
+        code_block_patterns = [
+            r'```patch\n(.*?)```',
+            r'```diff\n(.*?)```',
+            r'```[a-zA-Z0-9_+-]*\n(.*?)```'
+        ]
+
+        for pattern in code_block_patterns:
+            matches = re.findall(pattern, input, re.DOTALL)
+            if matches:
+                patch_content = matches[0].strip()
+                if not patch_content.startswith('diff --git') and not patch_content.startswith('---'):
+                    if not patch_content.startswith('---'):
+                        file_match = re.search(r'file[:：]\s*([^\n]+)', input)
+                        if file_match:
+                            filename = file_match.group(1).strip()
+                            patch_content = f"--- a/{filename}\n+++ b/{filename}\n{patch_content}"
+                
+                return patch_content
+
+        return input.strip()
 
     def verify(self, data: SwingbenchInstance, input: str):
-        patch = self._extract_patch(input)
+        # Extract the test patch
+        test_patch = self._extract_patch(input)
+        
+        # Create a copy of data with the test patch
+        new_data = data.copy()
+        new_data.test_patch = test_patch
+        
+        # Apply the golden patch first
+        if hasattr(data, 'patch') and data.patch:
+            # Use the same verification logic as PatchVerifier
+            patch_verifier = PatchVerifier(self.ci_tool.__class__.__name__.lower())
+            patch_result = patch_verifier.verify(data, data.patch)
+            
+            if not patch_result["success"]:
+                return {
+                    "success": False,
+                    "reason": "Golden patch verification failed",
+                    "patch_result": patch_result,
+                    "test_patch": test_patch
+                }
+        
+        # Now verify the test patch
+        if isinstance(self.ci_tool, CargoCITool):
+            # For Cargo, we need to run the tests
+            result = self.ci_tool.run_ci(f"./logs/{data.instance_id}_test.log")
+            is_success = result.get('returncode', 1) == 0 and not result.get('test_results', {}).get('failed', [])
+            return {
+                "success": is_success,
+                "tool": "cargo",
+                "result": result,
+                "test_patch": test_patch
+            }
+        else:
+            # For CI tools, run the verification
+            result = self.ci_tool.run_ci()
+            is_success = all(test.get('stepResult', '') == 'success' for test in result)
+            return {
+                "success": is_success,
+                "tool": "ci",
+                "result": result,
+                "test_patch": test_patch
+            }
 
 
 class ModelInfo:
