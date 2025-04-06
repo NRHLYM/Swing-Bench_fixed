@@ -50,6 +50,7 @@ def battle(
         patch_agent, test_agent = agent_one, agent_two
         # 10 turn, generate patch five times and generate test five times
         for _ in range(turns):
+            # TODO(wdxu): add temperature
             patch = patch_agent.generate_patch(data)
             if not verifier.verify_patch(data, patch):
                 patch_agent.score -= 1

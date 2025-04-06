@@ -18,7 +18,8 @@ OPENAI_LIST = ["gpt-3.5-turbo", "gpt-4", "gpt-4o", "gpt-4.5-preview",
                "/home/mnt/wdxu/models/Qwen2.5-Coder-32B-Instruct",
                "/app/wdxu/models/Qwen2.5-Coder-32B",
                "/app/wdxu/models/DeepSeek-R1-Distill-Qwen-32B",
-               "glm-4-flash"]
+               "glm-4-flash",
+               "/app/wdxu/models/DeepSeek-R1-Distill-Qwen-7B"]
 
 MODEL_LIMITS = {
     # "claude-instant-1": 100_000,
@@ -33,6 +34,7 @@ MODEL_LIMITS = {
     "glm-4-flash": 32_768,
 }
 
+# TODO(wdxu): users pass these prompt templates.
 # change to a more efficient template
 GENERATE_PATCH_SYSTEM_MESSAGE = "You are an AI Senior Full-Stack Engineer specialized in GitHub issue triage and bug fixing." \
                                 "You should only generate the fixed code, without any other text or markdown formatting."
@@ -65,6 +67,7 @@ def create_patch_from_diff(original_code: str, fixed_code: str, file_path: str) 
             # Initialize git repo
             os.chdir(temp_dir)
             subprocess.run(["git", "init", "-q"], check=True)
+            # TODO(wdxu): move environment configuration out of main process.
             subprocess.run(["git", "config", "user.name", "test"], check=True)
             subprocess.run(["git", "config", "user.email", "test@example.com"], check=True)
             
@@ -162,7 +165,8 @@ class PatchVerifier(Verifier):
         self.workdir = workdir
         self.output_dir = output_dir
         self.src_folder = src_folder
-        
+    
+    # TODO(wdxu): default implementation, need users (competitors) pass their implementations.
     def _extract_code(self, input: str):
         import re
         code_block_pattern = r"```[^\n]*\n(.*?)```"
@@ -174,6 +178,8 @@ class PatchVerifier(Verifier):
     def verify(self, data: SwingbenchInstance, input: str):
         workdir = f"{self.workdir}/{data.instance_id}"
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        # TODO(wdxu): create_diff_patch
+        # BasePatchCreater
         code = self._extract_code(input)
         os.makedirs(workdir, exist_ok=True)
         patch = create_patch_from_diff(data.code, code, f'{workdir}/tests/test_{timestamp}.rs')
@@ -295,10 +301,16 @@ class TestVerifier(Verifier):
 
 
 class ModelInfo:
-    def __init__(self, name: str, base_url: str = None, api_key: str = None):
+    def __init__(self, name: str, base_url: str = None, api_key: str = None, system_msg_tpl: str = None, prompt_tpl: str = None):
         self.name = name
         self.base_url = base_url
         self.api_key = api_key
+        self.system_msg_tpl = None
+        self.prompt_tpl = None
+        if system_msg_tpl is not None:
+            self.system_msg_tpl = system_msg_tpl
+        if prompt_tpl is not None:
+            self.prompt_tpl = prompt_tpl
 
 
 class AgentProxy:
@@ -409,7 +421,7 @@ if __name__ == "__main__":
     index_dir = '/mnt/Data/wdxu/github/Swing-Bench/tmpdata/indexes'
 
     # model_info = ModelInfo(name="/home/mnt/wdxu/models/Qwen2.5-Coder-14B-Instruct", base_url="http://localhost:8000/v1")
-    model_info = ModelInfo(name="/app/wdxu/models/DeepSeek-R1-Distill-Qwen-32B", base_url="http://147.8.182.54:10000/v1")
+    model_info = ModelInfo(name="/app/wdxu/models/DeepSeek-R1-Distill-Qwen-32B", base_url="http://147.8.182.54:8000/v1", api_key="no-api-key")
     agent = AgentProxy(model_info)
 
     retriever = BM25DiskRetriever(index_dir=index_dir)
@@ -418,8 +430,12 @@ if __name__ == "__main__":
         for swing_instance in dataset:
             response = agent.generate_patch(swing_instance, retriever)
             print('patch response', response.choices[0].message.content)
-            response = agent.generate_test(swing_instance, retriever)
-            print('test response', response.choices[0].message.content)
+
+            verifier = PatchVerifier(ci_tool_name="cargo")
+            verifier.verify(swing_instance, response.choices[0].message.content)
+
+            # response = agent.generate_test(swing_instance, retriever)
+            # print('test response', response.choices[0].message.content)
 
         # results = retriever.retrieve(swing_instance)
         # print('retrieved instance id {} results {}'.format(swing_instance.instance_id, results))
