@@ -3,6 +3,7 @@ import copy
 from abc import ABC, abstractmethod
 from pathlib import Path
 from openai import OpenAI
+from datetime import datetime
 from swebench.harness.constants.swing_constants import(
     AgentState,
     SwingbenchInstance
@@ -147,7 +148,7 @@ class Verifier:
         raise NotImplementedError
 
     @abstractmethod
-    def _extract_patch(self, input: str):
+    def _extract_code(self, input: str):
         raise NotImplementedError
 
     @abstractmethod
@@ -162,36 +163,23 @@ class PatchVerifier(Verifier):
         self.output_dir = output_dir
         self.src_folder = src_folder
         
-    def _extract_patch(self, input: str):
-        """Extract code from model output and create patch."""
-        # Remove any possible markdown code block
+    def _extract_code(self, input: str):
         import re
         code_block_pattern = r"```[^\n]*\n(.*?)```"
         matches = re.findall(code_block_pattern, input, re.DOTALL)
         if matches:
             input = matches[0]
-            
-        # Get original code from the file
-        file_path = "src/lib.rs"  # This should be made configurable
-        try:
-            with open(os.path.join(self.src_folder, file_path)) as f:
-                original_code = f.read()
-                
-            # Create patch from diff
-            patch = create_patch_from_diff(original_code, input.strip(), file_path)
-            if not patch:
-                print(f"Warning: Failed to create patch, falling back to direct code")
-                return input.strip()
-            return patch
-        except Exception as e:
-            print(f"Error reading original file: {e}")
-            return input.strip()
+        return input.strip()
 
     def verify(self, data: SwingbenchInstance, input: str):
-        patch = self._extract_patch(input)
+        workdir = f"{self.workdir}/{data.instance_id}"
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        code = self._extract_code(input)
+        os.makedirs(workdir, exist_ok=True)
+        patch = create_patch_from_diff(data.code, code, f'{workdir}/tests/test_{timestamp}.rs')
         new_data = copy.copy(data)
         new_data.patch = patch
-        
+
         # Check if CI tools are available
         if hasattr(data, 'ci_name_list') and data.ci_name_list:
             # Use CI tool if available
@@ -203,7 +191,7 @@ class PatchVerifier(Verifier):
                     "base_commit": data.base_commit,
                     "merge_commit": data.merge_commit_sha,
                     "patch": patch,
-                    "workdir": f"{self.workdir}/{data.instance_id}",
+                    "workdir": workdir,
                     "output_dir": self.output_dir,
                     "apply_patch": True,
                     "ci_name_list": data.ci_name_list
@@ -229,7 +217,7 @@ class PatchVerifier(Verifier):
             "workdir": f"{self.workdir}/{data.instance_id}",
             "output_dir": self.output_dir,
             "apply_patch": True,
-            "src_folder": "/raid/rust-repos"
+            "src_folder": self.src_folder
         })
         log_file = f"{self.output_dir}/{data.instance_id}.log"
         result = cargo_tool.run_ci(log_file)
@@ -249,21 +237,17 @@ class TestVerifier(Verifier):
         self.workdir = workdir
         self.output_dir = output_dir
         
-    def _extract_patch(self, input: str):
-        """Extract test code from model output and create patch."""
-        # Remove any possible markdown code block
+    def _extract_code(self, input: str):
         import re
         code_block_pattern = r"```[^\n]*\n(.*?)```"
         matches = re.findall(code_block_pattern, input, re.DOTALL)
         if matches:
             input = matches[0]
-            
-        # Create patch for new test file
-        return parse_testcase(input.strip(), "tests/test_lib.rs")
+        return input.strip()
 
     def verify(self, data: SwingbenchInstance, input: str):
         # Extract the test patch
-        test_patch = self._extract_patch(input)
+        test_patch = self._extract_code(input)
         
         # Create a copy of data with the test patch
         new_data = copy.copy(data)
