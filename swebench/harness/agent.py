@@ -34,7 +34,6 @@ MODEL_LIMITS = {
     "glm-4-flash": 32_768,
 }
 
-# TODO(wdxu): users pass these prompt templates.
 # change to a more efficient template
 GENERATE_PATCH_SYSTEM_MESSAGE = "You are an AI Senior Full-Stack Engineer specialized in GitHub issue triage and bug fixing." \
                                 "You should only generate the fixed code, without any other text or markdown formatting."
@@ -52,6 +51,12 @@ GENERATE_TEST_TEMPLATE = "You are required to develop unit tests for the specifi
                           "The test case sample: {sample}\n" \
                           "Please provide the complete test code without any explanations or markdown."
 
+class Prompt:
+    def __init__(self):
+        self.system_message = None
+        self.user_prompt = None
+
+
 def create_patch_from_diff(original_code: str, fixed_code: str, file_path: str) -> str:
     """Create a git patch from two versions of code."""
     import tempfile
@@ -67,7 +72,6 @@ def create_patch_from_diff(original_code: str, fixed_code: str, file_path: str) 
             # Initialize git repo
             os.chdir(temp_dir)
             subprocess.run(["git", "init", "-q"], check=True)
-            # TODO(wdxu): move environment configuration out of main process.
             subprocess.run(["git", "config", "user.name", "test"], check=True)
             subprocess.run(["git", "config", "user.email", "test@example.com"], check=True)
             
@@ -301,16 +305,16 @@ class TestVerifier(Verifier):
 
 
 class ModelInfo:
-    def __init__(self, name: str, base_url: str = None, api_key: str = None, system_msg_tpl: str = None, prompt_tpl: str = None):
+    def __init__(self, name: str, base_url: str = None, api_key: str = None, system_msg_tpl: str = None, user_prompt_tpl: str = None):
         self.name = name
         self.base_url = base_url
         self.api_key = api_key
         self.system_msg_tpl = None
-        self.prompt_tpl = None
+        self.user_prompt_tpl = None
         if system_msg_tpl is not None:
             self.system_msg_tpl = system_msg_tpl
-        if prompt_tpl is not None:
-            self.prompt_tpl = prompt_tpl
+        if user_prompt_tpl is not None:
+            self.user_prompt_tpl = user_prompt_tpl
 
 
 class AgentProxy:
@@ -324,59 +328,48 @@ class AgentProxy:
         self.model_info = model_info
         self.score = 0
 
-    def _call_api(self, prompt: str, state: AgentState):
+    def _call_api(self, prompt: Prompt):
         """
         Route the prompt to different API.
 
         Args:
             prompt (str): your prompt
-            state (AgentState): the type of this prompt
         """
         response = None
         if self.model_info.name in OPENAI_LIST:
-            response = self._call_openai(prompt, state)
+            response = self._call_openai(prompt)
         else:
             # TODO(wdxu): offline server
             response = self._call_offline()
         return response
 
-    def _call_openai(self, prompt: str, state: AgentState):
+    def _call_openai(self, prompt: Prompt):
         """
         Openai interface.
 
         Args:
             base_url (str): the base url of the openai server e.g. http://localhost:8000/v1
             prompt (str): your prompt
-            state (AgentState): the type of this prompt
         """
         # For local inference, we don't need an API key
         client = OpenAI(
             api_key=self.model_info.api_key,
             base_url=self.model_info.base_url,
         )
-        if state == AgentState.PATCH:
-            response = client.chat.completions.create(
-                model=self.model_info.name,
-                # TODO(wdxu): need to designe a message passer.
-                messages=[
-                    {"role": "system", "content": GENERATE_PATCH_SYSTEM_MESSAGE},
-                    {"role": "user", "content": prompt},
-                ],
-            )
-        else:
-            response = client.chat.completions.create(
-                model=self.model_info.name,
-                messages=[
-                    {"role": "system", "content": GENERATE_TEST_SYSTEM_MESSAGE},
-                    {"role": "user", "content": prompt},
-                ],
-            )
+        response = client.chat.completions.create(
+            model=self.model_info.name,
+            messages=[
+                {"role": "system", "content": prompt.system_message},
+                {"role": "user", "content": prompt.user_prompt},
+            ],
+        )
+
         return response
 
     def _call_offline(self):
         raise NotImplementedError("Offline server is not implemented yet.")
 
-    def generate_patch(self, data: SwingbenchInstance, retriever: Retriever = None):
+    def generate_patch(self, data: SwingbenchInstance, system_msg: str, user_prompt_tpl: str, retriever: Retriever = None):
         """
         Patch generater.
 
@@ -388,11 +381,13 @@ class AgentProxy:
         if retriever is not None:
             # get code_snippset from retriever
             code_snippset = retriever.retrieve(data)
-        prompt = GENERATE_PATCH_TEMPLATE.format(issue=issue, code_snippset=code_snippset)
+        prompt = Prompt()
+        prompt.system_message = system_msg
+        prompt.user_prompt = user_prompt_tpl.format(issue=issue, code_snippset=code_snippset)
 
-        return self._call_api(prompt, AgentState.PATCH)
+        return self._call_api(prompt)
 
-    def generate_test(self, data: SwingbenchInstance, retriever: Retriever):
+    def generate_test(self, data: SwingbenchInstance, system_msg: str, user_prompt_tpl: str, retriever: Retriever = None):
         """
         Test generater.
 
@@ -406,10 +401,11 @@ class AgentProxy:
         if retriever is not None:
             # get code_snippset from retriever
             code_snippset = retriever.retrieve(data)
+        prompt = Prompt()
+        prompt.system_message = system_msg
+        prompt.user_prompt = user_prompt_tpl.format(issue=issue, code_snippset=code_snippset, patch=patch, sample=sample)
 
-        prompt = GENERATE_TEST_TEMPLATE.format(issue=issue, code_snippset=code_snippset, patch=patch, sample=sample)
-
-        return self._call_api(prompt, AgentState.TEST)
+        return self._call_api(prompt)
 
 
 if __name__ == "__main__":
@@ -420,22 +416,22 @@ if __name__ == "__main__":
     dataset = swing_utils.load_swingbench_dataset(dataset_jsonl_path)
     index_dir = '/mnt/Data/wdxu/github/Swing-Bench/tmpdata/indexes'
 
-    # model_info = ModelInfo(name="/home/mnt/wdxu/models/Qwen2.5-Coder-14B-Instruct", base_url="http://localhost:8000/v1")
-    model_info = ModelInfo(name="/app/wdxu/models/DeepSeek-R1-Distill-Qwen-32B", base_url="http://147.8.182.54:8000/v1", api_key="no-api-key")
+    model_info = ModelInfo(name="/home/mnt/wdxu/models/DeepSeek-R1-Distill-Qwen-7B", base_url="http://localhost:8000/v1")
+    # model_info = ModelInfo(name="/app/wdxu/models/DeepSeek-R1-Distill-Qwen-32B", base_url="http://147.8.182.54:8000/v1", api_key="no-api-key")
     agent = AgentProxy(model_info)
 
     retriever = BM25DiskRetriever(index_dir=index_dir)
 
     if not DEBUG_VERIFIER:
         for swing_instance in dataset:
-            response = agent.generate_patch(swing_instance, retriever)
+            response = agent.generate_patch(swing_instance, GENERATE_PATCH_SYSTEM_MESSAGE, GENERATE_PATCH_TEMPLATE, retriever)
             print('patch response', response.choices[0].message.content)
 
-            verifier = PatchVerifier(ci_tool_name="cargo")
-            verifier.verify(swing_instance, response.choices[0].message.content)
+            # verifier = PatchVerifier(ci_tool_name="cargo")
+            # verifier.verify(swing_instance, response.choices[0].message.content)
 
-            # response = agent.generate_test(swing_instance, retriever)
-            # print('test response', response.choices[0].message.content)
+            response = agent.generate_test(swing_instance, GENERATE_TEST_SYSTEM_MESSAGE, GENERATE_TEST_TEMPLATE, retriever)
+            print('test response', response.choices[0].message.content)
 
         # results = retriever.retrieve(swing_instance)
         # print('retrieved instance id {} results {}'.format(swing_instance.instance_id, results))
