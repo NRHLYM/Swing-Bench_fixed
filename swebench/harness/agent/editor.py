@@ -4,6 +4,7 @@ import os
 import re
 from openai import OpenAI
 import subprocess
+
 def remove_line_number(content):
     return re.sub(r"^\d+\s", "", content, flags=re.MULTILINE)
 

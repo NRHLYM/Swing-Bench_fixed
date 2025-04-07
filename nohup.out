@@ -1,0 +1,6 @@
+time="2025-04-07T16:34:35Z" level=info msg="Start initial compatible provider 故障转移"
+time="2025-04-07T16:34:35Z" level=info msg="Start initial compatible provider 自动选择"
+time="2025-04-07T16:34:35Z" level=info msg="Start initial compatible provider TapFog"
+time="2025-04-07T16:34:35Z" level=info msg="RESTful API listening at: 127.0.0.1:9090"
+time="2025-04-07T16:34:35Z" level=info msg="Mixed(http+socks) proxy listening at: 127.0.0.1:7890"
+time="2025-04-07T16:34:38Z" level=info msg="[TCP] 127.0.0.1:48832 --> github.com:443 match DomainKeyword(github) using TapFog[Bronze-美国-Los-03]"

@@ -25,6 +25,7 @@ class SwingbenchInstance:
     issue_numbers: int = None
     merge_commit_sha: str = None
     ci_name_list: list[str] = None
+    retrieved_files: dict[str, str] = None
    
 # Constants - Test Types, Statuses, Commands
 FAIL_TO_PASS = "FAIL_TO_PASS"

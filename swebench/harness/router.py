@@ -408,7 +408,7 @@ class ActCITool(CIToolBase):
         self.task = Task(self.config["id"], env_script, eval_script, self.config["patch"], target_dir, self.config["output_dir"], previous_eval_script)
 
 
-HANDLER = {
+EVAL_HANDLER = {
     "cargo": CargoCITool,
     "docker": DockerCITool,
     "act": ActCITool
