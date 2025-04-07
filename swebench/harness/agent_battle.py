@@ -28,10 +28,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger("agent_battle")
 
+# TODO(haoran): concurrent execution
 def battle(
     dataset: List[SwingbenchInstance],
     agent_one: AgentProxy,
     agent_two: AgentProxy,
+    verifier: Verifier,
+    turns: int = 10,
 ):
     """
     The logic of model battle.
@@ -40,30 +43,26 @@ def battle(
         dataset (List[SwingbenchInstance]): a list containing multiple instances of SwingbenchInstance
         agent_one (AgentProxy): an instance of AgentProxy
         agent_two (AgentProxy): an instance of AgentProxy
+        turns (int): the number of turns in the battle
     """
-    
-    turns = 10
-    verifier = Verifier()
 
-    # TODO: patch only
+    temperatures = [1 - (i / turns) for i in range(turns)] # fixed temperature: 1 -> 0
     for data in dataset:
         patch_agent, test_agent = agent_one, agent_two
-        # 10 turn, generate patch five times and generate test five times
-        for _ in range(turns):
-            # TODO(wdxu): add temperature
-            patch = patch_agent.generate_patch(data)
-            if not verifier.verify_patch(data, patch):
+        for i in range(turns):
+            patch = patch_agent.generate_patch(data, temperature=temperatures[i])
+            if not verifier.verify_patch(data, patch): # patch failed
                 patch_agent.score -= 1
                 patch_agent, test_agent = test_agent, patch_agent
                 continue
 
-            test = test_agent.generate_test()
-            if not verifier.verify_test(data, test):
+            test = test_agent.generate_test(data, temperature=temperatures[i])
+            if not verifier.verify_test(data, test): # test failed
                 test_agent.score -= 1
                 patch_agent, test_agent = test_agent, patch_agent
                 continue
 
-            if verifier.verify_patch(data, patch, test):
+            if verifier.verify_patch(data, patch, test): # patch and test both passed
                 patch_agent.score += 1
             else:
                 test_agent.score += 1
