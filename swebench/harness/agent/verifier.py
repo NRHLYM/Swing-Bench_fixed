@@ -228,3 +228,12 @@ class TestVerifier(Verifier):
                 "result": result,
                 "test_patch": test_patch
             }
+
+
+if __name__ == "__main__":
+    from swebench.harness.agent.model import ModelInfo
+    from swebench.harness.agent.retriever import BM25DiskRetriever
+    from swebench.harness.agent.prompt import GENERATE_PATCH_SYSTEM_MESSAGE, GENERATE_PATCH_TEMPLATE
+
+    retriever = BM25DiskRetriever(index_dir="/mnt/Data/wdxu/github/Swing-Bench/tmpdata/indexes")
+    

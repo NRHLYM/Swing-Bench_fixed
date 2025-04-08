@@ -13,3 +13,8 @@ GENERATE_TEST_TEMPLATE = "You are required to develop unit tests for the specifi
                           "The fixed code: {patch}\n" \
                           "The test case sample: {sample}\n" \
                           "Please provide the complete test code without any explanations or markdown."
+
+class Prompt:
+    def __init__(self):
+        self.system_message = None
+        self.user_prompt = None

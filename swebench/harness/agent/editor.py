@@ -4,6 +4,7 @@ import os
 import re
 from openai import OpenAI
 import subprocess
+
 def remove_line_number(content):
     return re.sub(r"^\d+\s", "", content, flags=re.MULTILINE)
 
@@ -30,7 +31,7 @@ def load_from_repo_structure(file_path, repo_structure, decoding="utf-8"):
     return ""
 
 class CodeEditor:
-    def __init__(self, api_key, base_url, model):
+    def __init__(self, api_key: str, base_url: str, model: str):
         self.client = OpenAI(api_key=api_key, base_url=base_url)
         self.model = model
         # TODO(haoran): better prompt
@@ -73,7 +74,7 @@ class CodeEditor:
             }
         }]
     
-    def edit_code(self, issue, original_code, file_path):
+    def edit_code(self, issue: str, original_code: str, file_path: str):
         input = json.dumps({
             "input": {
                 "issue": issue,
@@ -94,7 +95,7 @@ class CodeEditor:
         }
 
 # TODO(haoran): use flake8 to lint the code
-def lint_code(code, prev_code=""):
+def lint_code(code: str, prev_code: str = ""):
     """
     Lints Python code using flake8 to check for fatal errors.
     
@@ -157,7 +158,7 @@ def lint_code(code, prev_code=""):
             
         return True, set(), set()
 
-def generate_git_diff(file_path, old_content, new_content):
+def generate_git_diff(file_path: str, old_content: str, new_content: str):
     """
     Creates a temporary git repository and returns the diff between two versions of a file.
     
@@ -197,5 +198,24 @@ def generate_git_diff(file_path, old_content, new_content):
 
         return diff_output
 
+
 if __name__ == "__main__":
-    pass
+    from swebench.harness.agent.model import ModelInfo
+    # code_editor = CodeEditor(
+    #     api_key=os.environ["XAI_API_KEY"],
+    #     base_url="https://api.x.ai/v1",
+    #     model="grok-2-latest"
+    # )
+    code_editor = CodeEditor(
+        api_key="no-api-key",
+        base_url="http://147.8.182.54:8000/v1",
+        model="/app/wdxu/models/Qwen2.5-Coder-7B-Instruct"
+    )
+    with open("/mnt/Data/wdxu/github/Swing-Bench/tmpdata/tset_editor.py", "r") as f:
+        content = f.read()
+        result = code_editor.edit_code(
+            issue="fix the bug",
+            original_code=content,
+            file_path="/mnt/Data/wdxu/github/Swing-Bench/tmpdata/tset_editor.py"
+        )
+        print(result)
