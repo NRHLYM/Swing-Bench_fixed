@@ -95,11 +95,14 @@ class RawDataCodeEditor(CodeEditorBase):
         input = json.dumps(self.function)
         response = self.client.chat.completions.create(
             model=self.model,
-            messages=[{"role": "user", "content": input}],
+            messages=[{"role": "user", "content": input},
+                      {"role": "system", "content": "Analyze and modify code to resolve issues while preserving functionality. You should use code_editor to process the intput field information. You should use <response>...</response> to wrap the code_editor output."}
+                      ],
             temperature=0.0,
             # functions=self.function,
             # function_call={"name": "code_editor"},
         )
+        print(response.choices[0].message.content)
         function_call_args = self._parse_structured_data(response.choices[0].message.content)
         if function_call_args is None:
             return None
@@ -229,16 +232,16 @@ def generate_git_diff(file_path: str, old_content: str, new_content: str):
 
 if __name__ == "__main__":
     from swebench.harness.agent.model import ModelInfo
-    # code_editor = CodeEditor(
-    #     api_key=os.environ["XAI_API_KEY"],
-    #     base_url="https://api.x.ai/v1",
-    #     model="grok-2-latest"
-    # )
     code_editor = RawDataCodeEditor(
-        api_key="no-api-key",
-        base_url="http://localhost:8000/v1",
-        model="/home/mnt/wdxu/models/Qwen2.5-Coder-7B-Instruct"
+        api_key=os.environ["XAI_API_KEY"],
+        base_url="https://api.x.ai/v1",
+        model="grok-2-latest"
     )
+    # code_editor = RawDataCodeEditor(
+    #     api_key="no-api-key",
+    #     base_url="http://localhost:8000/v1",
+    #     model="/home/mnt/wdxu/models/Qwen2.5-Coder-7B-Instruct"
+    # )
     with open("/mnt/Data/wdxu/github/Swing-Bench/tmpdata/tset_editor.py", "r") as f:
         content = f.read()
         result = code_editor.edit_code(
