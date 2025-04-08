@@ -45,6 +45,7 @@ class CodeEditorBase:
 class RawDataCodeEditor(CodeEditorBase):
     def __init__(self, api_key: str, base_url: str, model: str):
         self.system_prompt = "Analyze and modify code to resolve issues while preserving functionality. You should use code_editor to process the intput field information. You should use <response>...</response> to wrap the code_editor output."
+        self.retry_prompt = "The previous response is not correct because it is not a valid json object, please try again. The previous response is: "
         self.client = OpenAI(api_key=api_key, base_url=base_url)
         self.model = model
         # TODO(haoran): better prompt
@@ -87,52 +88,6 @@ class RawDataCodeEditor(CodeEditorBase):
             }
         }
 
-    def edit_code(self, issue: str, original_code: str, file_path: str):
-        self.function["input"] = {
-                "issue": issue,
-                "original_code": original_code,
-                "file_path": file_path,
-        }
-        input = json.dumps(self.function)
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[{"role": "user", "content": input},
-                      {"role": "system", "content": self._system_prompt}
-                      ],
-            temperature=0.0,
-            # functions=self.function,
-            # function_call={"name": "code_editor"},
-        )
-        function_call_args = self._parse_structured_data(response.choices[0].message.content)
-        if function_call_args is None:
-            return None
-        return {
-            "reasoning_trace": function_call_args["reasoning_trace"],
-            "code_edits": function_call_args["code_edits"],
-        }
-
-    def edit_code_batch(self, issue: str, original_code: list[dict], file_path_list: list[str]):
-        self.function["input"] = {
-                "issue": issue,
-                "original_code": original_code,
-                "file_path_list": file_path_list,
-        }
-        input = json.dumps(self.function)
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[{"role": "user", "content": input},
-                      {"role": "system", "content": "Analyze and modify code to resolve issues while preserving functionality. You should use code_editor to process the intput field information. You should use <response>...</response> to wrap the code_editor output."}
-                      ],
-            temperature=0.0,
-        )
-        function_call_args = self._parse_structured_data(response.choices[0].message.content)
-        if function_call_args is None:
-            return None
-        return {
-            "reasoning_trace": function_call_args["reasoning_trace"],
-            "code_edits": function_call_args["code_edits"],
-        }
-
     def _parse_structured_data(self, content: str) -> dict:
         pattern = r'<response>\s*(.*?)\s*</response>'
         match = re.search(pattern, content, re.DOTALL)
@@ -141,10 +96,58 @@ class RawDataCodeEditor(CodeEditorBase):
         json_content = match.group(1).strip()
         try:
             json_result = json.loads(json_content)
-            return json_result
+            return json_result, ""
         except json.JSONDecodeError:
             print(f"Failed to parse structured data: {json_content}")
+            return None, content
+
+    def _call_api(self, origin_input: str, retry: int = 1):
+        input = origin_input
+        function_call_args, raw_resposne = None, ""
+        for i in range(retry):
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": input},
+                        {"role": "system", "content": self.system_prompt}],
+                temperature=0.0,
+            )
+            function_call_args, raw_resposne = self._parse_structured_data(response.choices[0].message.content)
+            if function_call_args == None:
+                input = origin_input + "\n " + self.retry_prompt + raw_resposne
+                continue
+            else:
+                break
+        return function_call_args
+
+    def edit_code(self, issue: str, original_code: str, file_path: str, retry: int = 1):
+        self.function["input"] = {
+                "issue": issue,
+                "original_code": original_code,
+                "file_path": file_path,
+        }
+        origin_input = json.dumps(self.function)
+        function_call_args = self._call_api(origin_input, retry)
+        if function_call_args is None:
             return None
+        return {
+            "reasoning_trace": function_call_args["reasoning_trace"],
+            "code_edits": function_call_args["code_edits"],
+        }
+
+    def edit_code_batch(self, issue: str, original_code: list[dict], file_path_list: list[str], retry: int = 1):
+        self.function["input"] = {
+                "issue": issue,
+                "original_code": original_code,
+                "file_path_list": file_path_list,
+        }
+        origin_input = json.dumps(self.function)
+        function_call_args = self._call_api(origin_input, retry)
+        if function_call_args is None:
+            return None
+        return {
+            "reasoning_trace": function_call_args["reasoning_trace"],
+            "code_edits": function_call_args["code_edits"],
+        }
 
 
 # TODO(haoran): use flake8 to lint the code

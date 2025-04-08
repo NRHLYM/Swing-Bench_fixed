@@ -258,6 +258,6 @@ if __name__ == "__main__":
         code_snippet_list = [hit["contents"] for hit in code_snippset["hits"]]
         response = code_editor.edit_code_batch(instance.problem_statement,
                                          code_snippet_list,
-                                         file_path_list)
+                                         file_path_list,
+                                         retry=2)
         print(response)
-        break
