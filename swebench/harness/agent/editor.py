@@ -92,7 +92,7 @@ class RawDataCodeEditor(CodeEditorBase):
         pattern = r'<response>\s*(.*?)\s*</response>'
         match = re.search(pattern, content, re.DOTALL)
         if not match:
-            return content
+            return None, content
         json_content = match.group(1).strip()
         try:
             json_result = json.loads(json_content)
