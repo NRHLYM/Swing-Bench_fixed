@@ -44,6 +44,7 @@ class CodeEditorBase:
 
 class RawDataCodeEditor(CodeEditorBase):
     def __init__(self, api_key: str, base_url: str, model: str):
+        self.system_prompt = "Analyze and modify code to resolve issues while preserving functionality. You should use code_editor to process the intput field information. You should use <response>...</response> to wrap the code_editor output."
         self.client = OpenAI(api_key=api_key, base_url=base_url)
         self.model = model
         # TODO(haoran): better prompt
@@ -51,7 +52,7 @@ class RawDataCodeEditor(CodeEditorBase):
         # TODO(haoran): add naive function calling
         self.function = {
             "name": "code_editor",
-            "description": "Analyze and modify code to resolve issues while preserving functionality. You should use code_editor to process the intput field information. You should use <response>...</response> to wrap the code_editor output.",
+            "description": f"{self.system_prompt}",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -85,7 +86,7 @@ class RawDataCodeEditor(CodeEditorBase):
                 "required": ["reasoning_trace", "code_edits"]
             }
         }
-    
+
     def edit_code(self, issue: str, original_code: str, file_path: str):
         self.function["input"] = {
                 "issue": issue,
@@ -96,13 +97,34 @@ class RawDataCodeEditor(CodeEditorBase):
         response = self.client.chat.completions.create(
             model=self.model,
             messages=[{"role": "user", "content": input},
-                      {"role": "system", "content": "Analyze and modify code to resolve issues while preserving functionality. You should use code_editor to process the intput field information. You should use <response>...</response> to wrap the code_editor output."}
+                      {"role": "system", "content": self._system_prompt}
                       ],
             temperature=0.0,
             # functions=self.function,
             # function_call={"name": "code_editor"},
         )
-        print(response.choices[0].message.content)
+        function_call_args = self._parse_structured_data(response.choices[0].message.content)
+        if function_call_args is None:
+            return None
+        return {
+            "reasoning_trace": function_call_args["reasoning_trace"],
+            "code_edits": function_call_args["code_edits"],
+        }
+
+    def edit_code_batch(self, issue: str, original_code: list[dict], file_path_list: list[str]):
+        self.function["input"] = {
+                "issue": issue,
+                "original_code": original_code,
+                "file_path_list": file_path_list,
+        }
+        input = json.dumps(self.function)
+        response = self.client.chat.completions.create(
+            model=self.model,
+            messages=[{"role": "user", "content": input},
+                      {"role": "system", "content": "Analyze and modify code to resolve issues while preserving functionality. You should use code_editor to process the intput field information. You should use <response>...</response> to wrap the code_editor output."}
+                      ],
+            temperature=0.0,
+        )
         function_call_args = self._parse_structured_data(response.choices[0].message.content)
         if function_call_args is None:
             return None

@@ -18,12 +18,12 @@ class BM25DiskRetriever(Retriever):
         self.index_dir = Path(index_dir)
         self.document_encoding_style = document_encoding_style
 
-    def retrieve(self, instance: SwingbenchInstance):
+    def retrieve(self, instance: SwingbenchInstance, k: int = 1):
         results = search_instance(
             instance,
             self.index_dir,
             self.document_encoding_style,
-            k=1
+            k=k
         )
         # TODO(wdxu): need some reduce strategies
         
