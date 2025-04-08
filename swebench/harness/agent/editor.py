@@ -2,8 +2,10 @@ import tempfile
 import json
 import os
 import re
-from openai import OpenAI
 import subprocess
+
+from openai import OpenAI
+from abc import ABC, abstractmethod
 
 def remove_line_number(content):
     return re.sub(r"^\d+\s", "", content, flags=re.MULTILINE)
@@ -30,16 +32,28 @@ def load_from_repo_structure(file_path, repo_structure, decoding="utf-8"):
         return "\n".join(text_lines)
     return ""
 
-class CodeEditor:
-    def __init__(self, api_key, base_url, model):
+class CodeEditorBase:
+    @abstractmethod
+    def __init__(self, api_key: str, base_url: str, model: str):
+        raise NotImplementedError
+
+    @abstractmethod
+    def edit_code(self, issue: str, original_code: str, file_path: str):
+        raise NotImplementedError
+
+
+class RawDataCodeEditor(CodeEditorBase):
+    def __init__(self, api_key: str, base_url: str, model: str):
+        self.system_prompt = "Analyze and modify code to resolve issues while preserving functionality. You should use code_editor to process the intput field information. You should use <response>...</response> to wrap the code_editor output."
+        self.retry_prompt = "The previous response is not correct because it is not a valid json object, please try again. The previous response is: "
         self.client = OpenAI(api_key=api_key, base_url=base_url)
         self.model = model
         # TODO(haoran): better prompt
         # TODO(haoran): supporting more files
         # TODO(haoran): add naive function calling
-        self.function = [{
+        self.function = {
             "name": "code_editor",
-            "description": "Analyze and modify code to resolve issues while preserving functionality",
+            "description": f"{self.system_prompt}",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -72,30 +86,71 @@ class CodeEditor:
                 },
                 "required": ["reasoning_trace", "code_edits"]
             }
-        }]
-    
-    def edit_code(self, issue, original_code, file_path):
-        input = json.dumps({
-            "input": {
+        }
+
+    def _parse_structured_data(self, content: str) -> dict:
+        pattern = r'<response>\s*(.*?)\s*</response>'
+        match = re.search(pattern, content, re.DOTALL)
+        if not match:
+            return None, content
+        json_content = match.group(1).strip()
+        try:
+            json_result = json.loads(json_content)
+            return json_result, ""
+        except json.JSONDecodeError:
+            return None, json_content
+
+    def _call_api(self, origin_input: str, retry: int = 1):
+        input = origin_input
+        function_call_args, raw_resposne = None, ""
+        for i in range(retry):
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": input},
+                        {"role": "system", "content": self.system_prompt}],
+                temperature=0.0,
+            )
+            function_call_args, raw_resposne = self._parse_structured_data(response.choices[0].message.content)
+            if function_call_args == None:
+                input = origin_input + "\n " + self.retry_prompt + raw_resposne
+                continue
+            else:
+                break
+        return function_call_args
+
+    def edit_code(self, issue: str, original_code: str, file_path: str, retry: int = 1):
+        self.function["input"] = {
                 "issue": issue,
                 "original_code": original_code,
                 "file_path": file_path,
-            }
-        })
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[{"role": "user", "content": input}],
-            functions=self.function,
-            function_call={"name": "code_editor"},
-        )
-        function_call_args = json.loads(response.choices[0].message.function_call.arguments)
+        }
+        origin_input = json.dumps(self.function)
+        function_call_args = self._call_api(origin_input, retry)
+        if function_call_args is None:
+            return None
         return {
             "reasoning_trace": function_call_args["reasoning_trace"],
             "code_edits": function_call_args["code_edits"],
         }
 
+    def edit_code_batch(self, issue: str, original_code: list[dict], file_path_list: list[str], retry: int = 1):
+        self.function["input"] = {
+                "issue": issue,
+                "original_code": original_code,
+                "file_path_list": file_path_list,
+        }
+        origin_input = json.dumps(self.function)
+        function_call_args = self._call_api(origin_input, retry)
+        if function_call_args is None:
+            return None
+        return {
+            "reasoning_trace": function_call_args["reasoning_trace"],
+            "code_edits": function_call_args["code_edits"],
+        }
+
+
 # TODO(haoran): use flake8 to lint the code
-def lint_code(code, prev_code=""):
+def lint_code(code: str, prev_code: str = ""):
     """
     Lints Python code using flake8 to check for fatal errors.
     
@@ -158,7 +213,7 @@ def lint_code(code, prev_code=""):
             
         return True, set(), set()
 
-def generate_git_diff(file_path, old_content, new_content):
+def generate_git_diff(file_path: str, old_content: str, new_content: str):
     """
     Creates a temporary git repository and returns the diff between two versions of a file.
     
@@ -195,8 +250,27 @@ def generate_git_diff(file_path, old_content, new_content):
             cwd=tmp_dir
         )
         diff_output = result.stdout.decode("utf-8")
-
+        
         return diff_output
 
+
 if __name__ == "__main__":
-    pass
+    from swebench.harness.agent.model import ModelInfo
+    code_editor = RawDataCodeEditor(
+        api_key=os.environ["XAI_API_KEY"],
+        base_url="https://api.x.ai/v1",
+        model="grok-2-latest"
+    )
+    # code_editor = RawDataCodeEditor(
+    #     api_key="no-api-key",
+    #     base_url="http://localhost:8000/v1",
+    #     model="/home/mnt/wdxu/models/Qwen2.5-Coder-7B-Instruct"
+    # )
+    with open("/mnt/Data/wdxu/github/Swing-Bench/tmpdata/tset_editor.py", "r") as f:
+        content = f.read()
+        result = code_editor.edit_code(
+            issue="fix the bug",
+            original_code=content,
+            file_path="/mnt/Data/wdxu/github/Swing-Bench/tmpdata/tset_editor.py"
+        )
+        print(result)

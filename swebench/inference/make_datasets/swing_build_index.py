@@ -189,5 +189,5 @@ def main():
 
 
 if __name__ == "__main__":
-    # python swing_build_index.py --dataset_path /mnt/Data/wdxu/github/Swing-Bench/tmpdata/dataset.json --output_dir /mnt/Data/wdxu/github/Swing-Bench/tmpdata/indexes
+    # python -m swebench.inference.make_datasets.swing_build_index --dataset_path tmpdata/dataset.json --output_dir tmpdata/indexes
     main()

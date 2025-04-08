@@ -161,5 +161,38 @@ class TestVerifier(Verifier): # haoran: We can just write the test code into a f
                 "success": is_success,
                 "tool": "ci",
                 "result": result,
-                "testcase": testcase
+                "test_patch": test_patch
             }
+
+
+if __name__ == "__main__":
+    import swing_utils
+    from swebench.harness.agent.retriever import BM25DiskRetriever
+    from swebench.harness.agent.editor import RawDataCodeEditor
+    from swebench.harness.agent.model import ModelInfo, AgentProxy
+    from swebench.harness.agent.prompt import GENERATE_PATCH_SYSTEM_MESSAGE, GENERATE_PATCH_TEMPLATE
+
+    retriever = BM25DiskRetriever(index_dir="/mnt/Data/wdxu/github/Swing-Bench/tmpdata/indexes")
+    dataset_jsonl_path = '/mnt/Data/wdxu/github/Swing-Bench/tmpdata/dataset.json'
+    dataset = swing_utils.load_swingbench_dataset(dataset_jsonl_path)
+
+    base_url = "https://api.x.ai/v1"
+    api_key = os.environ["XAI_API_KEY"]
+    model = "grok-2-latest"
+
+    code_editor = RawDataCodeEditor(
+        api_key=api_key,
+        base_url=base_url,
+        model=model
+    )
+
+    for instance in dataset:
+        code_snippset = retriever.retrieve(instance, k=20)
+        # print(code_snippset)
+        file_path_list = [hit["docid"] for hit in code_snippset["hits"]]
+        code_snippet_list = [hit["contents"] for hit in code_snippset["hits"]]
+        response = code_editor.edit_code_batch(instance.problem_statement,
+                                         code_snippet_list,
+                                         file_path_list,
+                                         retry=3)
+        print(response)
