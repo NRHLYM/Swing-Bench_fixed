@@ -5,10 +5,10 @@ from datetime import datetime
 from swebench.harness.constants.swing_constants import SwingbenchInstance
 from swebench.harness.router import CIToolBase, CargoCITool
 from swebench.harness.router import EVAL_HANDLER
-from swebench.harness.agent.prompt import GENERATE_TEST_SYSTEM_MESSAGE, GENERATE_TEST_TEMPLATE, GENERATE_PATCH_SYSTEM_MESSAGE, GENERATE_PATCH_TEMPLATE
+from swebench.harness.agent.prompt import GENERATE_TEST_SYSTEM_MESSAGE, GENERATE_TEST_TEMPLATE
 from swebench.harness.agent.model import AgentProxy
 from swebench.harness.agent.utils import parse_testcase, apply_patch, files_to_str
-from swebench.harness.agent.editor import CodeEditor, generate_git_diff
+from swebench.harness.agent.editor import RawDataCodeEditor, generate_git_diff
 
 class Verifier:
     @abstractmethod
@@ -36,7 +36,7 @@ class PatchVerifier(Verifier):
         self.workdir = workdir
         self.output_dir = output_dir
         self.src_folder = src_folder
-        self.code_editor = CodeEditor(
+        self.code_editor = RawDataCodeEditor(
             api_key=api_key,
             base_url=base_url,
             model=model
@@ -161,20 +161,19 @@ class TestVerifier(Verifier): # haoran: We can just write the test code into a f
                 "success": is_success,
                 "tool": "ci",
                 "result": result,
-                "test_patch": test_patch
+                "testcase": testcase
             }
 
 
 if __name__ == "__main__":
-    import swing_utils
+    from swebench.harness.swing_utils import load_swingbench_dataset
     from swebench.harness.agent.retriever import BM25DiskRetriever
     from swebench.harness.agent.editor import RawDataCodeEditor
     from swebench.harness.agent.model import ModelInfo, AgentProxy
-    from swebench.harness.agent.prompt import GENERATE_PATCH_SYSTEM_MESSAGE, GENERATE_PATCH_TEMPLATE
 
-    retriever = BM25DiskRetriever(index_dir="/mnt/Data/wdxu/github/Swing-Bench/tmpdata/indexes")
-    dataset_jsonl_path = '/mnt/Data/wdxu/github/Swing-Bench/tmpdata/dataset.json'
-    dataset = swing_utils.load_swingbench_dataset(dataset_jsonl_path)
+    retriever = BM25DiskRetriever(index_dir="/raid/Swing-Bench/tmpdata/indexes")
+    dataset_jsonl_path = '/raid/Swing-Bench/tmpdata/dataset.json'
+    dataset = load_swingbench_dataset(dataset_jsonl_path)
 
     base_url = "https://api.x.ai/v1"
     api_key = os.environ["XAI_API_KEY"]
