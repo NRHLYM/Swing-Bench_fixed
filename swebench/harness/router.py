@@ -42,7 +42,7 @@ class CIToolBase:
     def construct(self):
         pass
     
-    def run_ci(self, log_file):
+    def run_ci(self, log_file: str = None):
         pass
 
 class CargoCITool(CIToolBase):
@@ -99,10 +99,7 @@ class CargoCITool(CIToolBase):
         
         self.task = Task("", env_script, eval_script, self.config["patch"], target_dir, self.config["output_dir"])
 
-    def parse_test_results(self, log_file):
-        with open(log_file, 'r') as f:
-            output = f.read()
-        
+    def parse_test_results(self, output):
         passed_pattern = r"test ([\w:]+) \.\.\. ok"
         failed_pattern = r"test ([\w:]+) \.\.\. FAILED"
         ignored_pattern = r"test ([\w:]+) \.\.\. ignored"
@@ -126,52 +123,43 @@ class CargoCITool(CIToolBase):
         
         return test_results
 
-    def run_ci(self, log_file):
+    def run_ci(self):
         """Run tests and save results to log file"""
         try:
             logger.info(f"Starting CI run for {self.config['repo']} (ID: {self.config.get('id', 'unknown')})")
-            # Execute environment setup and evaluation scripts
-            task = self.task
-            
-            self._execute_scripts(cwd=task.target_dir)            
-            logger.info(f"Running cargo test in {task.target_dir}")
-            with open(log_file, "w") as f:
-                result = subprocess.run(
-                    ["cargo", "test"], 
-                    cwd=task.target_dir, 
-                    stdout=f, 
-                    stderr=subprocess.STDOUT,  # Redirect stderr to stdout
-                    text=True
-                )
 
-            logger.info(f"Cargo test completed with return code: {result.returncode}")
-            test_results = self.parse_test_results(log_file)
+            task = self.task
+            self._execute_scripts(cwd=task.target_dir)
+            logger.info(f"Running cargo test in {task.target_dir}")
             
+            result = subprocess.run(
+                ["cargo", "test"],
+                cwd=task.target_dir,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+            
+            logger.info(f"Cargo test completed with return code: {result.returncode}")
+            
+            test_results = self.parse_test_results(result.stdout)
             output = {
                 "returncode": result.returncode,
                 "test_results": test_results
             }
             
-            # Write processed results to JSON
-            results_json_path = log_file + ".json"
-            with open(results_json_path, 'w') as f:
-                json.dump(output, f, indent=4)
-            
-            logger.info(f"Results saved to {results_json_path}")
             return output
+
         except Exception as e:
             logger.error(f"Task failed with exception: {str(e)}")
-            # Record error to log file
-            with open(log_file, "w") as f:
-                f.write(f"Task failed with exception: {str(e)}")
-            
-            # Return error information
+            import traceback
+            traceback.print_exc()
             return {
                 "returncode": 1,
                 "error": str(e),
                 "test_results": {"passed": [], "failed": [], "ignored": [], "failure_details": {}}
             }
-
+            
     def _execute_scripts(self, cwd="~"):
         """Execute environment setup and evaluation scripts, hide output"""
         # Ensure each repository uses unique script file paths

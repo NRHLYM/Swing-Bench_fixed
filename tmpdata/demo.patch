@@ -1,0 +1,101 @@
+diff --git a/rustzx-core/src/zx/tape/tap.rs b/rustzx-core/src/zx/tape/tap.rs
+index feaa5e7..50459f8 100644
+--- a/rustzx-core/src/zx/tape/tap.rs
++++ b/rustzx-core/src/zx/tape/tap.rs
+@@ -36,13 +36,15 @@ struct BlockInfo {
+ 
+ // TODO(#53): Eliminate loading a whole file to vector in tap loader
+ 
+-pub struct Tap {
++use crate::host::LoadableAsset;
++
++pub struct Tap<R: LoadableAsset> {
+     /// state of tape
+     state: TapeState,
+     /// previous state
+     prev_state: TapeState,
+-    /// data of tape
+-    data: Vec<u8>,
++    /// reader for tape data
++    reader: TapReader<R>,
+     /// fields for pulse making from byte
+     curr_bit: bool,
+     curr_byte: u8,
+@@ -84,11 +86,52 @@ impl Tap {
+ 
+         let mut tap = Self::default();
+ 
+-        let mut buffer = [0u8; 1024];
+-        let mut read_bytes = asset.read(&mut buffer)?;
+-        while read_bytes != 0 {
+-            tap.data.extend_from_slice(&buffer[0..read_bytes]);
+-            read_bytes = asset.read(&mut buffer)?;
++        use crate::host::LoadableAsset;
++
++        struct TapReader<R: LoadableAsset> {
++            asset: R,
++            position: usize,
++        }
++
++        impl<R: LoadableAsset> TapReader<R> {
++            fn new(asset: R) -> Self {
++                TapReader { asset, position: 0 }
++            }
++
++            fn read(&mut self, buf: &mut [u8]) -> Result<usize, R::Error> {
++                self.asset.seek(SeekFrom::Start(self.position as u64))?;
++                let bytes_read = self.asset.read(buf)?;
++                self.position += bytes_read;
++                Ok(bytes_read)
++            }
++        }
++
++        pub fn from_asset(mut asset: impl LoadableAsset) -> Result<Self> {
++            use crate::utils::make_word;
++
++            let mut tap = Self::default();
++
++            let reader = TapReader::new(asset);
++
++            tap.block_info.clear();
++            let mut p = 0;
++            'blocks: loop {
++                let mut len_bytes = [0u8; 2];
++                reader.read(&mut len_bytes)?;
++                let len = make_word(len_bytes[1], len_bytes[0]) as usize;
++                tap.block_info.push(BlockInfo {
++                    length: len,
++                    pos: p + 2,
++                    end: p + 2 + len - 1,
++                });
++                p += 2 + len;
++                if p >= reader.position {
++                    break 'blocks;
++                }
++            }
++            tap.reset_state();
++
++            Ok(tap)
+         }
+ 
+         tap.block_info.clear();
+@@ -135,13 +178,16 @@ impl TapeImpl for Tap {
+     }
+ 
+     /// returns byte of block
+-    fn block_byte(&self, offset: usize) -> Option<u8> {
++    fn block_byte(&mut self, offset: usize) -> Option<u8> {
+         if self.block_info.is_empty() {
+             return None;
+-        };
++        }
+         let block = self.block_info[self.block];
+         if offset < block.length {
+-            Some(self.data[block.pos + offset])
++            let mut byte = [0u8; 1];
++            self.reader.seek(SeekFrom::Start((block.pos + offset) as u64)).unwrap();
++            self.reader.read(&mut byte).unwrap();
++            Some(byte[0])
+         } else {
+             None
+         }

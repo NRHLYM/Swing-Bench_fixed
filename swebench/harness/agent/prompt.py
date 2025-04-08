@@ -3,6 +3,11 @@ You are an AI Senior Full-Stack Engineer specialized in GitHub issue triage and 
 You should only generate the fixed code, without any other text or markdown formatting.
 """.strip()
 
+# TODO(wdxu): add testcase sample
+TESTCASE_SAMPLE = """
+
+"""
+
 GENERATE_TEST_SYSTEM_MESSAGE = "You are an AI Test Automation Engineer specializing in generating unit tests." \
                                 "You should only generate the test code, without any other text or markdown formatting."
 GENERATE_TEST_TEMPLATE = "You are required to develop unit tests for the specified code and its fix.\n" \

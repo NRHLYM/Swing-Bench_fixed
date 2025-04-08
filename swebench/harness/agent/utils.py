@@ -58,7 +58,7 @@ def parse_testcase(response: str, language: str) -> str:
     
     return response.strip()
 
-def apply_patch(patch: str, directory: str, commit: str = None):
+def apply_git_patch(patch: str, directory: str):
     """Apply a patch to files in the specified directory.
     
     Args:
@@ -82,10 +82,6 @@ def apply_patch(patch: str, directory: str, commit: str = None):
     os.chdir(directory)
     
     try:
-        if commit:
-            logging.info(f"Resetting repository to commit: {commit}")
-            subprocess.run(["git", "checkout", commit], check=True)
-
         with tempfile.NamedTemporaryFile(mode='w', suffix='.patch', delete=False) as temp_file:
             temp_file.write(patch)
             temp_path = temp_file.name
