@@ -2,8 +2,10 @@ import tempfile
 import json
 import os
 import re
-from openai import OpenAI
 import subprocess
+
+from openai import OpenAI
+from abc import ABC, abstractmethod
 
 def remove_line_number(content):
     return re.sub(r"^\d+\s", "", content, flags=re.MULTILINE)
@@ -30,16 +32,26 @@ def load_from_repo_structure(file_path, repo_structure, decoding="utf-8"):
         return "\n".join(text_lines)
     return ""
 
-class CodeEditor:
+class CodeEditorBase:
+    @abstractmethod
+    def __init__(self, api_key: str, base_url: str, model: str):
+        raise NotImplementedError
+
+    @abstractmethod
+    def edit_code(self, issue: str, original_code: str, file_path: str):
+        raise NotImplementedError
+
+
+class RawDataCodeEditor(CodeEditorBase):
     def __init__(self, api_key: str, base_url: str, model: str):
         self.client = OpenAI(api_key=api_key, base_url=base_url)
         self.model = model
         # TODO(haoran): better prompt
         # TODO(haoran): supporting more files
         # TODO(haoran): add naive function calling
-        self.function = [{
+        self.function = {
             "name": "code_editor",
-            "description": "Analyze and modify code to resolve issues while preserving functionality",
+            "description": "Analyze and modify code to resolve issues while preserving functionality. You should use code_editor to process the intput field information. You should use <response>...</response> to wrap the code_editor output.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -72,27 +84,43 @@ class CodeEditor:
                 },
                 "required": ["reasoning_trace", "code_edits"]
             }
-        }]
+        }
     
     def edit_code(self, issue: str, original_code: str, file_path: str):
-        input = json.dumps({
-            "input": {
+        self.function["input"] = {
                 "issue": issue,
                 "original_code": original_code,
                 "file_path": file_path,
-            }
-        })
+        }
+        input = json.dumps(self.function)
         response = self.client.chat.completions.create(
             model=self.model,
             messages=[{"role": "user", "content": input}],
-            functions=self.function,
-            function_call={"name": "code_editor"},
+            temperature=0.0,
+            # functions=self.function,
+            # function_call={"name": "code_editor"},
         )
-        function_call_args = json.loads(response.choices[0].message.function_call.arguments)
+        function_call_args = self._parse_structured_data(response.choices[0].message.content)
+        if function_call_args is None:
+            return None
         return {
             "reasoning_trace": function_call_args["reasoning_trace"],
             "code_edits": function_call_args["code_edits"],
         }
+
+    def _parse_structured_data(self, content: str) -> dict:
+        pattern = r'<response>\s*(.*?)\s*</response>'
+        match = re.search(pattern, content, re.DOTALL)
+        if not match:
+            return content
+        json_content = match.group(1).strip()
+        try:
+            json_result = json.loads(json_content)
+            return json_result
+        except json.JSONDecodeError:
+            print(f"Failed to parse structured data: {json_content}")
+            return None
+
 
 # TODO(haoran): use flake8 to lint the code
 def lint_code(code: str, prev_code: str = ""):
@@ -195,7 +223,7 @@ def generate_git_diff(file_path: str, old_content: str, new_content: str):
             cwd=tmp_dir
         )
         diff_output = result.stdout.decode("utf-8")
-
+        
         return diff_output
 
 
@@ -206,10 +234,10 @@ if __name__ == "__main__":
     #     base_url="https://api.x.ai/v1",
     #     model="grok-2-latest"
     # )
-    code_editor = CodeEditor(
+    code_editor = RawDataCodeEditor(
         api_key="no-api-key",
-        base_url="http://147.8.182.54:8000/v1",
-        model="/app/wdxu/models/Qwen2.5-Coder-7B-Instruct"
+        base_url="http://localhost:8000/v1",
+        model="/home/mnt/wdxu/models/Qwen2.5-Coder-7B-Instruct"
     )
     with open("/mnt/Data/wdxu/github/Swing-Bench/tmpdata/tset_editor.py", "r") as f:
         content = f.read()
