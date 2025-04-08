@@ -98,8 +98,7 @@ class RawDataCodeEditor(CodeEditorBase):
             json_result = json.loads(json_content)
             return json_result, ""
         except json.JSONDecodeError:
-            print(f"Failed to parse structured data: {json_content}")
-            return None, content
+            return None, json_content
 
     def _call_api(self, origin_input: str, retry: int = 1):
         input = origin_input
