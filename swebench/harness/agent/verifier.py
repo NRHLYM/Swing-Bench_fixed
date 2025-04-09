@@ -32,13 +32,7 @@ class Verifier:
 
 class Generator:
     @abstractmethod
-    def __init__(self, workdir: str = "testbed", 
-                 src_folder: str = "repos",
-                 code_editor: CodeEditorBase = None,
-                 retriever: Retriever = None,
-                 retrieve_file_num: int = 20,
-                 agent_retry_times: int = 3,
-                 ):
+    def __init__(self):
         raise NotImplementedError
 
     @abstractmethod
