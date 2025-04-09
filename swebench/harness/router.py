@@ -148,10 +148,10 @@ class CargoCITool(CIToolBase):
             logger.info(f"Cargo test completed with return code: {result.returncode}")
             
             test_results = self.parse_test_results(result.stdout)
-            output = {
+            output = {"unit_test": {
                 "returncode": result.returncode,
                 "test_results": test_results
-            }
+            }}
             
             return output
 
@@ -159,11 +159,11 @@ class CargoCITool(CIToolBase):
             logger.error(f"Task failed with exception: {str(e)}")
             import traceback
             traceback.print_exc()
-            return {
+            return {"unit_test", {
                 "returncode": 1,
                 "error": str(e),
                 "test_results": {"passed": [], "failed": [], "ignored": [], "failure_details": {}}
-            }
+            }}
             
     def _execute_scripts(self, cwd="~"):
         """Execute environment setup and evaluation scripts, hide output"""
@@ -344,32 +344,36 @@ class ActCITool(CIToolBase):
 
     @staticmethod
     def _process_result(result_list: list[str]) -> dict:
-        processed_result = {
-            "passed": [],
-            "failed": [],
-            "ignored": [],
-        }
+        processed_result = {}
+
         for result in result_list:
             if type(result) == str:
                 result_json = json.loads(result)
             else:
                 result_json = result
             for processed_output in result_json["processed_output"]:
-                if processed_output["stepResult"] == "success":
-                    processed_result["passed"].append({"job": processed_output["job"],
-                                                       "jobID": processed_output["jobID"],
+                job_id = processed_output["jobID"]
+                if job_id not in processed_result:
+                    processed_result[job_id] = {
+                        "returncode": result_json["returncode"],
+                        "test_results": {
+                            "passed": [],
+                            "failed": [],
+                            "ignored": [],
+                        }
+                    }
+                if processed_output["stepResult"] == "success" and processed_output["stage"] != "":
+                    processed_result[job_id]["test_results"]["passed"].append({
                                                        "stage": processed_output["stage"],
                                                        "step": processed_output["step"],
                                                        "stepID": processed_output["stepID"]})
                 elif processed_output["stepResult"] == "failure":
-                    processed_result["failed"].append({"job": processed_output["job"],
-                                                       "jobID": processed_output["jobID"],
+                    processed_result[job_id]["test_results"]["failed"].append({
                                                        "stage": processed_output["stage"],
                                                        "step": processed_output["step"],
                                                        "stepID": processed_output["stepID"]})
                 elif processed_output["stepResult"] == "skipped":
-                    processed_result["ignored"].append({"job": processed_output["job"],
-                                                        "jobID": processed_output["jobID"],
+                    processed_result[job_id]["test_results"]["ignored"].append({
                                                         "stage": processed_output["stage"],
                                                         "step": processed_output["step"],
                                                         "stepID": processed_output["stepID"]})
