@@ -341,7 +341,41 @@ class ActCITool(CIToolBase):
             self.result_lock.acquire()
             self.result_list.append(result)
             self.result_lock.release()
-    
+
+    @staticmethod
+    def _process_result(result_list: list[str]) -> dict:
+        processed_result = {
+            "passed": [],
+            "failed": [],
+            "ignored": [],
+        }
+        for result in result_list:
+            if type(result) == str:
+                result_json = json.loads(result)
+            else:
+                result_json = result
+            for processed_output in result_json["processed_output"]:
+                if processed_output["stepResult"] == "success":
+                    processed_result["passed"].append({"job": processed_output["job"],
+                                                       "jobID": processed_output["jobID"],
+                                                       "stage": processed_output["stage"],
+                                                       "step": processed_output["step"],
+                                                       "stepID": processed_output["stepID"]})
+                elif processed_output["stepResult"] == "failure":
+                    processed_result["failed"].append({"job": processed_output["job"],
+                                                       "jobID": processed_output["jobID"],
+                                                       "stage": processed_output["stage"],
+                                                       "step": processed_output["step"],
+                                                       "stepID": processed_output["stepID"]})
+                elif processed_output["stepResult"] == "skipped":
+                    processed_result["ignored"].append({"job": processed_output["job"],
+                                                        "jobID": processed_output["jobID"],
+                                                        "stage": processed_output["stage"],
+                                                        "step": processed_output["step"],
+                                                        "stepID": processed_output["stepID"]})
+
+        return processed_result
+
     def run_ci(self, pool):
         task = self.task
         run_script("\n".join(task.env_script))
@@ -365,7 +399,7 @@ class ActCITool(CIToolBase):
 
         # os.system("rm -rf " + task.target_dir)
 
-        return self.result_list
+        return ActCITool._process_result(self.result_list)
 
     def construct(self):
         env_script = self._build_repo_base_env()
@@ -399,6 +433,15 @@ RUST_INSTALL = ["if ! command -v rustc >/dev/null 2>&1; then",
 
 
 if __name__ == '__main__':
+    # inputs = ''
+    # with open(os.path.join(os.environ["SWING_TESTBED_PATH"], "cplee__github-actions-demo-1_test_merged_output.json"), 'r') as f:
+    #     while x := f.readline():
+    #         inputs += x
+    #     result = ActCITool._process_result([inputs])
+    #     for each in result:
+    #         print(each, result[each])
+    # exit()
+
     from swebench.harness.utils import PortPool
     port_pool = PortPool([i for i in range(50505, 52505)])
 
