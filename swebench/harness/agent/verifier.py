@@ -84,7 +84,7 @@ class PatchVerifier(Verifier):
         
         # CITool will handle the patch
         config = {
-            "id": data.instance_id,
+            "instance_id": data.instance_id,
             "repo": data.repo,
             "base_commit": data.base_commit,
             "merge_commit": data.merge_commit_sha,
@@ -158,7 +158,7 @@ class TestVerifier(Verifier):
             f.write(testcase)
 
         config = {
-            "id": data.instance_id,
+            "instance_id": data.instance_id,
             "repo": data.repo,
             "base_commit": data.base_commit,
             "merge_commit": data.merge_commit_sha,

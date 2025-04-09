@@ -87,7 +87,7 @@ def run_instance(
             logger.info(f"Using CargoCITool for instance {instance_id}")
             # Use CargoCITool for Cargo projects
             cargo = CargoCITool({
-                "id": instance_id,
+                "instance_id": instance_id,
                 "repo": repo,
                 "base_commit": instance.get("base_commit"),
                 "merge_commit": instance.get("merge_commit_sha"),
@@ -111,7 +111,7 @@ def run_instance(
             # Use ActCITool by default
             act = ActCITool({
                 "act_path": act_path,
-                "id": instance_id,
+                "instance_id": instance_id,
                 "repo": repo,
                 "base_commit": instance.get("base_commit"),
                 "merge_commit": instance.get("merge_commit_sha"),

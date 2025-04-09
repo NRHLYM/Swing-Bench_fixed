@@ -62,7 +62,7 @@ def search_instance(
                 "docid": hit.docid,
                 "score": hit.score,
                 "contents": raw_doc.get("contents", ""),
-                "relative_path": raw_doc.get("id", "")
+                "relative_path": raw_doc.get("instance_id", "")
             })
             
         return results

@@ -113,7 +113,7 @@ fn test_factorial() {
     
     # Create CargoCITool with required config
     ci_tool = CargoCITool({
-        "id": instance.instance_id,
+        "instance_id": instance.instance_id,
         "repo": instance.repo,
         "base_commit": instance.base_commit,
         "merge_commit": instance.merge_commit_sha,

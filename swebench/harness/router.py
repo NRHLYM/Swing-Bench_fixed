@@ -27,12 +27,13 @@ def run_script(script_content, cwd=None):
 
 @dataclass
 class Task:
-    id: str
+    instance_id: str
     env_script: list[str]
     eval_script: list[str]
     patch: str
     target_dir: str
     output_dir: str
+    apply_patch: bool = False
     previous_eval_script: list[str] = None
 
 class CIToolBase:
@@ -54,7 +55,7 @@ class CargoCITool(CIToolBase):
         script = ["#!/bin/bash"]
         
         repo_dir_name = self.config["repo"].replace('/', '__')
-        instance_id = self.config.get("id", "unknown")
+        instance_id = self.config.get("instance_id", "unknown")
         src_path = os.path.join(self.config["src_folder"], repo_dir_name)
         dst_path = os.path.join(self.config["workdir"], f"{self.config['repo'].split('/')[1]}_{instance_id}")
         
@@ -64,7 +65,7 @@ class CargoCITool(CIToolBase):
         return script
 
     def _build_eval_script(self):
-        instance_id = self.config.get("id", "unknown")
+        instance_id = self.config.get("instance_id", "unknown")
         target_dir = os.path.join(self.config["workdir"], f"{self.config['repo'].split('/')[1]}_{instance_id}")
         
         script = ["#!/bin/bash", 
@@ -94,7 +95,7 @@ class CargoCITool(CIToolBase):
         env_script = self._build_repo_base_env()
         eval_script = self._build_eval_script()
         
-        instance_id = self.config.get("id", "unknown")
+        instance_id = self.config.get("instance_id", "unknown")
         target_dir = os.path.join(self.config["workdir"], f"{self.config['repo'].split('/')[1]}_{instance_id}")
         
         self.task = Task("", env_script, eval_script, self.config["patch"], target_dir, self.config["output_dir"])
@@ -164,7 +165,7 @@ class CargoCITool(CIToolBase):
         """Execute environment setup and evaluation scripts, hide output"""
         # Ensure each repository uses unique script file paths
         repo_name = self.config["repo"].split("/")[1]
-        instance_id = self.config.get("id", "unknown")
+        instance_id = self.config.get("instance_id", "unknown")
         script_dir = os.path.join(self.config["workdir"], f"{repo_name}_{instance_id}")
         
         logger.info(f"Creating script directory: {script_dir}")
@@ -393,7 +394,7 @@ class ActCITool(CIToolBase):
         previous_eval_script = self._build_previous_eval_script()
         target_dir = os.path.join(self.config["workdir"],
                                   self.cloned_repo_path)
-        self.task = Task(self.config["id"], env_script, eval_script, self.config["patch"], target_dir, self.config["output_dir"], previous_eval_script)
+        self.task = Task(self.config["instance_id"], env_script, eval_script, self.config["patch"], target_dir, self.config["output_dir"], previous_eval_script)
 
 
 EVAL_HANDLER = {
@@ -412,12 +413,19 @@ RUST_INSTALL = ["if ! command -v rustc >/dev/null 2>&1; then",
 
 
 if __name__ == '__main__':
+    with open(os.environ["SWING_DEMO_DATASET_PATH"], "r") as f:
+        dataset = json.load(f)
+    with open(os.environ["SWING_DEMO_PATCH_PATH"], "r") as f:
+        patch = f.read()
+
     # Comment(wdxu): fake data for test only.
     act = ActCITool({"act_path": "/mnt/Data/wdxu/github/act/bin/act", \
+                     "instance_id": "cplee__github-actions-demo-1", \
                      "repo": "cplee/github-actions-demo", \
                      "base_commit": "2dcabf3769c2613687310c7b71b89af681e8ee50", \
                      "merge_commit": "2dcabf3769c2613687310c7b71b89af681e8ee50", \
                      "patch": "patch_content", \
+                     "apply_patch": True, \
                      "workdir": "/home/wdxu/testbed", \
                      "output_dir": "output_dir"})
     result = act.run_ci(['test'])
