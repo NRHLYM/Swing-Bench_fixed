@@ -30,11 +30,10 @@ class Task:
     instance_id: str
     env_script: list[str]
     eval_script: list[str]
-    patch: str
     target_dir: str
     output_dir: str
+    patch: str = None
     apply_patch: bool = False
-    previous_eval_script: list[str] = None
 
 class CIToolBase:
     def __init__(self, config):
@@ -98,7 +97,12 @@ class CargoCITool(CIToolBase):
         instance_id = self.config.get("instance_id", "unknown")
         target_dir = os.path.join(self.config["workdir"], f"{self.config['repo'].split('/')[1]}_{instance_id}")
         
-        self.task = Task("", env_script, eval_script, self.config["patch"], target_dir, self.config["output_dir"])
+        self.task = Task(instance_id=instance_id,
+                         env_script=env_script,
+                         eval_script=eval_script,
+                         patch=self.config["patch"],
+                         target_dir=target_dir,
+                         output_dir=self.config["output_dir"])
 
     def parse_test_results(self, output):
         passed_pattern = r"test ([\w:]+) \.\.\. ok"
@@ -231,23 +235,14 @@ class ActCITool(CIToolBase):
         self.cloned_repo_path = self.config["repo"].split("/")[1] + "_" + self.config["merge_commit"]
         self.ci_dict = dict()
         self.result_lock = threading.Lock()
-        self.semaphore = threading.Semaphore(1)
-        self.act_mq = Queue()
+        self.result_list = []
+
         self.construct()
 
     def _build_repo_base_env(self):
         script = ["#!/bin/bash"]
         script.extend(["cd " + self.config["workdir"],
                        "git clone https://github.com/" + self.config["repo"] + ".git " + self.cloned_repo_path])
-
-        return script
-
-    def _build_previous_eval_script(self):
-        script = ["#!/bin/bash", 
-                    "cd " + os.path.join(self.config["workdir"], self.cloned_repo_path),
-                    "prev_commit=$(git rev-parse " + self.config["base_commit"] + "^)",
-                    "git checkout $prev_commit"
-                ]
 
         return script
 
@@ -309,18 +304,25 @@ class ActCITool(CIToolBase):
                 continue
         return results
 
-    def _run_act_with_semaphore(self, ci, target_dir, order, pool):
+    def _run_act_with_lock(self, ci, target_dir, order, pool):
         value = self.ci_dict.get(ci[0])
         if value is not None:
             port = pool.acquire_port()
-            path = self.config["output_dir"] + "/" + self.task.id + "_"  + value + "_" + order + "_output.json"
-            if os.path.exists(path):
-                return
+            path = self.config["output_dir"] + "/" + \
+                   self.task.instance_id + "_"  + \
+                   value + "_" + \
+                   order + "_output.json"
+            # Do not ignore the existing results.
+            # if os.path.exists(path):
+            #     print(f"path exists: {path}. Ignore...")
+            #     return
+            # print(target_dir)
+            # print(os.path.join(target_dir, ci[1]))
             process = subprocess.Popen(["act", "-j", value,
                                         "--artifact-server-port", str(port),
                                         "--artifact-server-addr", "0.0.0.0", 
                                         "--artifact-server-path", f"./act/{port}",
-                                        "-W", ci[1],
+                                        "-W", os.path.join(target_dir, ci[1]),
                                         "--json"], 
                                     cwd=target_dir,
                                     stdout=subprocess.PIPE,
@@ -335,66 +337,50 @@ class ActCITool(CIToolBase):
             }
             with open(path, 'w', encoding='utf-8') as f:
                 json.dump(result, f, ensure_ascii=False, indent=4)
-            self.act_mq.put(result)
+
+            self.result_lock.acquire()
+            self.result_list.append(result)
+            self.result_lock.release()
     
     def run_ci(self, pool):
         task = self.task
         run_script("\n".join(task.env_script))
         run_script("\n".join(task.eval_script))
 
+        # TODO(wdxu): apply patch and run act
         if self.apply_patch:
             run_script()
-                        
+
         self._get_ci_job_name_id_dict(task.target_dir)
-        eval_result = []
         threads = []
         for ci in self.config["ci_name_list"]:
             thread = threading.Thread(
-                target=lambda ci=ci: self._run_act_with_semaphore(ci, task.target_dir, "merged", pool)
+                target=lambda ci=ci: self._run_act_with_lock(ci, task.target_dir, "merged", pool)
             )
             thread.start()
             threads.append(thread)
-        
+
         for thread in threads:
             thread.join()
-        
-        while not self.act_mq.empty():
-            eval_result.append(self.act_mq.get())
-        
-        run_script("\n".join(task.previous_eval_script))
-        if task.previous_eval_script:
-            result = run_script(f"git apply {task.previous_eval_script}")
-            if not result:
-                print("Apply test patch successfully")
-            else:
-                print(f'Error when applying test patch: {result}')
 
-        previous_eval_result = []
-        threads = []
-        for ci in self.config["ci_name_list"]:
-            thread = threading.Thread(
-                target=lambda ci=ci: self._run_act_with_semaphore(ci, task.target_dir, "based", pool)
-            )
-            thread.start()
-            threads.append(thread)
-        
-        for thread in threads:
-            thread.join()
-            
-        while not self.act_mq.empty():
-            previous_eval_result.append(self.act_mq.get())
+        # os.system("rm -rf " + task.target_dir)
 
-        os.system("rm -rf " + task.target_dir)
-
-        return [eval_result, previous_eval_result]
+        return self.result_list
 
     def construct(self):
         env_script = self._build_repo_base_env()
         eval_script = self._build_eval_script()
-        previous_eval_script = self._build_previous_eval_script()
+
         target_dir = os.path.join(self.config["workdir"],
                                   self.cloned_repo_path)
-        self.task = Task(self.config["instance_id"], env_script, eval_script, self.config["patch"], target_dir, self.config["output_dir"], previous_eval_script)
+
+        self.task = Task(instance_id=self.config["instance_id"],
+                         env_script=env_script,
+                         eval_script=eval_script,
+                         patch=self.config["patch"],
+                         target_dir=target_dir,
+                         output_dir=self.config["output_dir"],
+                         apply_patch=self.config["apply_patch"])
 
 
 EVAL_HANDLER = {
@@ -413,10 +399,8 @@ RUST_INSTALL = ["if ! command -v rustc >/dev/null 2>&1; then",
 
 
 if __name__ == '__main__':
-    with open(os.environ["SWING_DEMO_DATASET_PATH"], "r") as f:
-        dataset = json.load(f)
-    with open(os.environ["SWING_DEMO_PATCH_PATH"], "r") as f:
-        patch = f.read()
+    from swebench.harness.utils import PortPool
+    port_pool = PortPool([i for i in range(50505, 52505)])
 
     # Comment(wdxu): fake data for test only.
     act = ActCITool({"act_path": "/mnt/Data/wdxu/github/act/bin/act", \
@@ -424,10 +408,12 @@ if __name__ == '__main__':
                      "repo": "cplee/github-actions-demo", \
                      "base_commit": "2dcabf3769c2613687310c7b71b89af681e8ee50", \
                      "merge_commit": "2dcabf3769c2613687310c7b71b89af681e8ee50", \
-                     "patch": "patch_content", \
-                     "apply_patch": True, \
-                     "workdir": "/home/wdxu/testbed", \
-                     "output_dir": "output_dir"})
-    result = act.run_ci(['test'])
-    with open('./result.log', 'w') as f:
-        f.write(str(result))
+                     "patch": "", \
+                     "apply_patch": False, \
+                     "workdir": os.environ["SWING_TESTBED_PATH"], \
+                     "ci_name_list": [["test", ".github/workflows/main.yml"]], \
+                     "output_dir": os.environ["SWING_TESTBED_PATH"]})
+    result = act.run_ci(port_pool)
+    print(result)
+    # with open('./result.log', 'w') as f:
+    #     f.write(str(result))
