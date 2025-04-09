@@ -28,6 +28,61 @@ class Verifier:
     def verify(self, data: SwingbenchInstance, input: str):
         raise NotImplementedError
 
+
+class Generator:
+    @abstractmethod
+    def __init__(self, workdir: str = "testbed", 
+                 src_folder: str = "repos",
+                 code_editor: CodeEditorBase = None,
+                 retriever: Retriever = None,
+                 retrieve_file_num: int = 20,
+                 agent_retry_times: int = 3,
+                 ):
+        raise NotImplementedError
+
+    @abstractmethod
+    def generate(self, data: SwingbenchInstance):
+        raise NotImplementedError
+
+
+class PatchGenerator(Generator):
+    def __init__(self, workdir: str = "testbed", 
+                 src_folder: str = "repos",
+                 code_editor: CodeEditorBase = None,
+                 retriever: Retriever = None,
+                 retrieve_file_num: int = 20,
+                 agent_retry_times: int = 3,
+                 ):
+        self.workdir = workdir
+        self.src_folder = src_folder
+        self.code_editor = code_editor
+        self.retriever = retriever
+        self.retrieve_file_num = retrieve_file_num
+        self.agent_retry_times = agent_retry_times
+
+    def generate(self, data: SwingbenchInstance):
+        pass
+
+
+class TestGenerator(Generator):
+    def __init__(self, workdir: str = "testbed", 
+                 src_folder: str = "repos",
+                 code_editor: CodeEditorBase = None,
+                 retriever: Retriever = None,
+                 retrieve_file_num: int = 20,
+                 agent_retry_times: int = 3,
+                 ):
+        self.workdir = workdir
+        self.src_folder = src_folder
+        self.code_editor = code_editor
+        self.retriever = retriever
+        self.retrieve_file_num = retrieve_file_num
+        self.agent_retry_times = agent_retry_times
+
+    def generate(self, data: SwingbenchInstance):
+        pass
+
+
 class PatchVerifier(Verifier):
     def __init__(self, ci_tool_name: str, 
                  workdir: str = "testbed", 
