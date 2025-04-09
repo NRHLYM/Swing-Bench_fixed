@@ -148,22 +148,27 @@ class PatchVerifier(Verifier):
         ci_tool = EVAL_HANDLER.get(self.ci_tool_name)
         tool = ci_tool(config)
         result = tool.run_ci()
-        # TODO(wdxu): unify the return format of run_ci
-        test_results = result.get('test_results', {})
+
         # haoran: FOR CARGO
         # test_results = {
-        #     "passed": passed_tests,
-        #     "failed": failed_tests,
-        #     "ignored": ignored_tests,
-        #     "failure_details": {}
+        #     "unit_test": {
+        #         "passed": passed_tests,
+        #         "failed": failed_tests,
+        #         "ignored": ignored_tests,
+        #         "failure_details": {}
+        #     }
+        # }
+        # FOR ACT
+        # test_results = {
+        #     "ci_1": {
+        #         "passed": passed_tests,
+        #         "failed": failed_tests,
+        #         "ignored": ignored_tests,
+        #         "failure_details": {}
+        #     }, ...
         # }
 
-        # TODO: parse success for different ci tools
-        def parse_success(test_results):
-            pass
-        success = parse_success(test_results)
         return {
-            "success": success,
             "tool": self.ci_tool_name,
             "result": result,
             "patch": patch
@@ -202,19 +207,27 @@ class TestVerifier(Verifier):
         ci_tool = EVAL_HANDLER.get(self.ci_tool_name)
         tool = ci_tool(config)
         result = tool.run_ci()
-        # TODO(wdxu): unify the return format of run_ci
-        test_results = result.get('test_results', {})
+
         # haoran: FOR CARGO
         # test_results = {
-        #     "passed": passed_tests,
-        #     "failed": failed_tests,
-        #     "ignored": ignored_tests,
+        #     "unit_test": {
+        #         "passed": passed_tests,
+        #         "failed": failed_tests,
+        #         "ignored": ignored_tests,
+        #         "failure_details": {}
+        #     }
         # }
-        def parse_success(test_results):
-            pass
-        success = parse_success(test_results)
+        # FOR ACT
+        # test_results = {
+        #     "ci_1": {
+        #         "passed": passed_tests,
+        #         "failed": failed_tests,
+        #         "ignored": ignored_tests,
+        #         "failure_details": {}
+        #     }, ...
+        # }
+
         return {
-            "success": success,
             "tool": self.ci_tool_name,
             "result": result,
             "testcase": testcase
@@ -227,6 +240,8 @@ if __name__ == "__main__":
     from swebench.harness.agent.editor import RawDataCodeEditor
     from swebench.harness.agent.model import AgentProxy
     import json
+    
+    SWING_DEBUG_GENERATE_DRYRUN = False
     
     base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     api_key = os.environ["QWEN_API_KEY"]
@@ -244,26 +259,23 @@ if __name__ == "__main__":
         base_url=base_url,
         model=model
     )
-
     data = SwingbenchInstance(**dataset[0])
-    patch_generator = PatchGenerator(
+    if not SWING_DEBUG_GENERATE_DRYRUN:
+        patch_generator = PatchGenerator(workdir=os.environ["SWING_TESTBED_PATH"], 
+            src_folder=os.environ["SWING_REPOS_DIR_PATH"], 
+            code_editor=code_editor,
+            retriever=retriever,
+            retrieve_file_num=20,
+            agent_retry_times=3
+        )
+        patch = patch_generator.generate(data)
+    else:
+        import swebench.harness.agent.verifier_test_patch as test_patch
+        patch = test_patch.patch
+
+    patch_verifier = PatchVerifier(ci_tool_name="cargo", 
         workdir=os.environ["SWING_TESTBED_PATH"], 
         src_folder=os.environ["SWING_REPOS_DIR_PATH"], 
-        code_editor=code_editor,
-        retriever=retriever,
-        retrieve_file_num=20,
-        agent_retry_times=3
-    )
-    patch = patch_generator.generate(data)
-
-    print('generated patch: ', patch)
-
-    patch_verifier = PatchVerifier(
-        ci_tool_name="cargo", 
-        workdir=os.environ["SWING_TESTBED_PATH"], 
-        src_folder=os.environ["SWING_REPOS_DIR_PATH"], 
-        retrieve_file_num=20,
-        agent_retry_times=3
     )
     result = patch_verifier.verify(data, patch)
     print('verify result: ', result)
