@@ -15,6 +15,7 @@ from swebench.harness.agent.editor import generate_git_diff_batch
 from swebench.harness.agent.retriever import Retriever
 from swebench.harness.agent.editor import CodeEditorBase
 
+
 class Verifier:
     @abstractmethod
     def __init__(self, ci_tool: CIToolBase):
@@ -61,46 +62,6 @@ class PatchGenerator(Generator):
         self.agent_retry_times = agent_retry_times
 
     def generate(self, data: SwingbenchInstance):
-        pass
-
-
-class TestGenerator(Generator):
-    def __init__(self, workdir: str = "testbed", 
-                 src_folder: str = "repos",
-                 code_editor: CodeEditorBase = None,
-                 retriever: Retriever = None,
-                 retrieve_file_num: int = 20,
-                 agent_retry_times: int = 3,
-                 ):
-        self.workdir = workdir
-        self.src_folder = src_folder
-        self.code_editor = code_editor
-        self.retriever = retriever
-        self.retrieve_file_num = retrieve_file_num
-        self.agent_retry_times = agent_retry_times
-
-    def generate(self, data: SwingbenchInstance):
-        pass
-
-
-class PatchVerifier(Verifier):
-    def __init__(self, ci_tool_name: str, 
-                 workdir: str = "testbed", 
-                 src_folder: str = "repos",
-                 code_editor: CodeEditorBase = None,
-                 retriever: Retriever = None,
-                 retrieve_file_num: int = 20,
-                 agent_retry_times: int = 3,
-                 ):
-        self.ci_tool_name = ci_tool_name
-        self.workdir = workdir
-        self.src_folder = src_folder
-        self.retriever = retriever
-        self.code_editor = code_editor
-        self.retrieve_file_num = retrieve_file_num
-        self.agent_retry_times = agent_retry_times
-
-    def generate(self, data: SwingbenchInstance):
         """
         Generate a patch for the given Swingbench instance.
         """
@@ -130,6 +91,46 @@ class PatchVerifier(Verifier):
         if os.path.exists(base_path):
             shutil.rmtree(base_path)
         return patch
+
+
+class TestGenerator(Generator):
+    def __init__(self, workdir: str = "testbed", 
+                 src_folder: str = "repos",
+                 code_editor: CodeEditorBase = None,
+                 retriever: Retriever = None,
+                 retrieve_file_num: int = 20,
+                 agent_retry_times: int = 3,
+                 ):
+        self.workdir = workdir
+        self.src_folder = src_folder
+        self.code_editor = code_editor
+        self.retriever = retriever
+        self.retrieve_file_num = retrieve_file_num
+        self.agent_retry_times = agent_retry_times
+
+    def generate(self, data: SwingbenchInstance):
+        prompt = [
+            {"role": "system", "content": GENERATE_TEST_SYSTEM_MESSAGE},
+            {"role": "user", "content": GENERATE_TEST_TEMPLATE.format(
+                issue=data.problem_statement,
+                code_snippset=files_to_str(data.retrieved_files),
+                patch=data.patch,
+                sample=TESTCASE_SAMPLE
+            )}
+        ]
+        response = self.proxy.generate(prompt, offline=False)
+        testcase = parse_testcase(response, data.language)
+        return testcase
+
+
+class PatchVerifier(Verifier):
+    def __init__(self, ci_tool_name: str, 
+                 workdir: str = "testbed", 
+                 src_folder: str = "repos",
+                 ):
+        self.ci_tool_name = ci_tool_name
+        self.workdir = workdir
+        self.src_folder = src_folder
 
     def verify(self, data: SwingbenchInstance, patch: str):
         data.patch = patch
@@ -180,31 +181,11 @@ class TestVerifier(Verifier):
                  workdir: str = "testbed", 
                  src_folder: str = "repos",
                  proxy: AgentProxy = None,
-                 retriever: Retriever = None,
-                 retrieve_file_num: int = 20,
-                 agent_retry_times: int = 3,
                  ):
         self.ci_tool_name = ci_tool_name
         self.workdir = workdir
         self.src_folder = src_folder
         self.proxy = proxy
-        self.retriever = retriever
-        self.retrieve_file_num = retrieve_file_num
-        self.agent_retry_times = agent_retry_times
-
-    def generate(self, data: SwingbenchInstance):
-        prompt = [
-            {"role": "system", "content": GENERATE_TEST_SYSTEM_MESSAGE},
-            {"role": "user", "content": GENERATE_TEST_TEMPLATE.format(
-                issue=data.problem_statement,
-                code_snippset=files_to_str(data.retrieved_files),
-                patch=data.patch,
-                sample=TESTCASE_SAMPLE
-            )}
-        ]
-        response = self.proxy.generate(prompt, offline=False)
-        testcase = parse_testcase(response, data.language)
-        return testcase
 
     def verify(self, data: SwingbenchInstance, testcase: str):
         # TODO(haoran): add more languages
@@ -269,8 +250,9 @@ if __name__ == "__main__":
         base_url=base_url,
         model=model
     )
-    patch_verifier = PatchVerifier(
-        ci_tool_name="cargo", 
+
+    data = SwingbenchInstance(**dataset[0])
+    patch_generator = PatchGenerator(
         workdir=os.environ["SWING_TESTBED_PATH"], 
         src_folder=os.environ["SWING_REPOS_DIR_PATH"], 
         code_editor=code_editor,
@@ -278,11 +260,17 @@ if __name__ == "__main__":
         retrieve_file_num=20,
         agent_retry_times=3
     )
-    
+    patch = patch_generator.generate(data)
 
-    data = SwingbenchInstance(**dataset[0])
-    patch = patch_verifier.generate(data)
     print('generated patch: ', patch)
+
+    patch_verifier = PatchVerifier(
+        ci_tool_name="cargo", 
+        workdir=os.environ["SWING_TESTBED_PATH"], 
+        src_folder=os.environ["SWING_REPOS_DIR_PATH"], 
+        retrieve_file_num=20,
+        agent_retry_times=3
+    )
     result = patch_verifier.verify(data, patch)
     print('verify result: ', result)
 
