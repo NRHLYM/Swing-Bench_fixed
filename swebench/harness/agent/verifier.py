@@ -198,10 +198,10 @@ if __name__ == "__main__":
     from swebench.harness.agent.model import AgentProxy
     import json
     
-    base_url = "https://api.x.ai/v1"
-    api_key = os.environ["XAI_API_KEY"]
-    model = "grok-2-latest"   
-    
+    base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    api_key = os.environ["QWEN_API_KEY"]
+    model = "qwen-plus"
+
     with open(os.environ["SWING_DEMO_DATASET_PATH"], "r") as f:
         dataset = json.load(f)
     with open(os.environ["SWING_DEMO_PATCH_PATH"], "r") as f:

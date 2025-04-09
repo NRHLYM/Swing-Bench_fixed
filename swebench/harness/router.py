@@ -247,11 +247,27 @@ class ActCITool(CIToolBase):
         return script
 
     def _build_eval_script(self):
+        target_dir = os.path.join(self.config["workdir"], self.cloned_repo_path)
+
         script = ["#!/bin/bash", 
-                    "cd " + os.path.join(self.config["workdir"], self.cloned_repo_path),
-                    "git checkout " + self.config["merge_commit"]
+                    "cd " + target_dir,
+                    "git stash -u || true"
                 ]
 
+        if "merge_commit" in self.config and self.config["merge_commit"]:
+            script.append("git checkout " + self.config["merge_commit"])
+            
+            # Apply test_patch if it exists
+            if self.config.get("test_patch"):
+                test_patch_file = f"{target_dir}/test_patch.diff"
+                script.append(f"cat > {test_patch_file} << 'EOL'\n{self.config['test_patch']}\nEOL")
+                script.append(f"git apply {test_patch_file} || echo 'Failed to apply test_patch'")
+            
+            # Apply patch only if apply_patch is specified
+            if self.config.get("apply_patch", False) and self.config.get("patch"):
+                patch_file = f"{target_dir}/patch.diff"
+                script.append(f"cat > {patch_file} << 'EOL'\n{self.config['patch']}\nEOL")
+                script.append(f"git apply {patch_file} || echo 'Failed to apply patch'")
         return script
 
     def _get_ci_job_name_id_dict(self, target_dir):
@@ -385,10 +401,6 @@ class ActCITool(CIToolBase):
         run_script("\n".join(task.env_script))
         run_script("\n".join(task.eval_script))
 
-        # TODO(wdxu): apply patch and run act
-        if self.apply_patch:
-            run_script()
-
         self._get_ci_job_name_id_dict(task.target_dir)
         threads = []
         for ci in self.config["ci_name_list"]:
@@ -456,7 +468,7 @@ if __name__ == '__main__':
                      "base_commit": "2dcabf3769c2613687310c7b71b89af681e8ee50", \
                      "merge_commit": "2dcabf3769c2613687310c7b71b89af681e8ee50", \
                      "patch": "", \
-                     "apply_patch": False, \
+                     "apply_patch": True, \
                      "workdir": os.environ["SWING_TESTBED_PATH"], \
                      "ci_name_list": [["test", ".github/workflows/main.yml"]], \
                      "output_dir": os.environ["SWING_TESTBED_PATH"]})
