@@ -34,36 +34,44 @@ class PatchVerifier(Verifier):
                  src_folder: str = "repos",
                  code_editor: CodeEditorBase = None,
                  retriever: Retriever = None,
-                 retrieve_times: int = 20,
-                 retry_times: int = 3,
+                 retrieve_file_num: int = 20,
+                 agent_retry_times: int = 3,
                  ):
         self.ci_tool_name = ci_tool_name
         self.workdir = workdir
         self.src_folder = src_folder
         self.retriever = retriever
         self.code_editor = code_editor
-        self.retrieve_times = retrieve_times
-        self.retry_times = retry_times
+        self.retrieve_file_num = retrieve_file_num
+        self.agent_retry_times = agent_retry_times
 
     def generate(self, data: SwingbenchInstance):
         """
         Generate a patch for the given Swingbench instance.
         """
-        code_snippset = self.retriever.retrieve(data, k=self.retrieve_times)
+        code_snippset = self.retriever.retrieve(data, k=self.retrieve_file_num)
         file_path_list = [hit["docid"] for hit in code_snippset["hits"]]
         code_snippet_list = [hit["contents"] for hit in code_snippset["hits"]]
         response = self.code_editor.edit_code_batch(data.problem_statement,
                                          code_snippet_list,
                                          file_path_list,
-                                         retry=self.retry_times)
+                                         retry=self.agent_retry_times)
         base_path = f"{self.workdir}/{data.instance_id}_{str(uuid4())}"
         if os.path.exists(base_path):
             shutil.rmtree(base_path)
         os.makedirs(base_path, exist_ok=True)
-        repo_path = f"{self.src_folder}/{data.repo}"
+
+        # convert repo path from x/y to x__y
+        repo_path = f"{self.src_folder}/{data.repo.replace('/', '__')}"
+
+        if os.path.exists(base_path):
+            # remove existing repo
+            shutil.rmtree(base_path)
+
         shutil.copytree(repo_path, base_path)
         subprocess.run(["git", "checkout", data.base_commit], cwd=base_path)
-        patch = generate_git_diff_batch(response, base_path)
+
+        patch = generate_git_diff_batch(response["code_edits"], base_path)
         if os.path.exists(base_path):
             shutil.rmtree(base_path)
         return patch
@@ -118,16 +126,16 @@ class TestVerifier(Verifier):
                  src_folder: str = "repos",
                  proxy: AgentProxy = None,
                  retriever: Retriever = None,
-                 retrieve_times: int = 20,
-                 retry_times: int = 3,
+                 retrieve_file_num: int = 20,
+                 agent_retry_times: int = 3,
                  ):
         self.ci_tool_name = ci_tool_name
         self.workdir = workdir
         self.src_folder = src_folder
         self.proxy = proxy
         self.retriever = retriever
-        self.retrieve_times = retrieve_times
-        self.retry_times = retry_times
+        self.retrieve_file_num = retrieve_file_num
+        self.agent_retry_times = agent_retry_times
 
     def generate(self, data: SwingbenchInstance):
         prompt = [
@@ -182,6 +190,7 @@ class TestVerifier(Verifier):
             "testcase": testcase
         }
 
+
 if __name__ == "__main__":
     from swebench.harness.swing_utils import load_swingbench_dataset
     from swebench.harness.agent.retriever import BM25DiskRetriever
@@ -193,10 +202,12 @@ if __name__ == "__main__":
     api_key = os.environ["XAI_API_KEY"]
     model = "grok-2-latest"   
     
-    with open("tmpdata/demo_dataset.json", "r") as f:
+    with open(os.environ["SWING_DEMO_DATASET_PATH"], "r") as f:
         dataset = json.load(f)
-    with open("tmpdata/demo.patch", "r") as f:
+    with open(os.environ["SWING_DEMO_PATCH_PATH"], "r") as f:
         patch = f.read()
+
+    retriever = BM25DiskRetriever(index_dir=os.environ["SWING_INDEXES_PATH"])
 
     code_editor = RawDataCodeEditor(
         api_key=api_key,
@@ -205,32 +216,40 @@ if __name__ == "__main__":
     )
     patch_verifier = PatchVerifier(
         ci_tool_name="cargo", 
-        workdir="testbed", 
-        src_folder="/raid/rust-repos/", 
-        code_editor=code_editor
+        workdir=os.environ["SWING_TESTBED_PATH"], 
+        src_folder=os.environ["SWING_REPOS_DIR_PATH"], 
+        code_editor=code_editor,
+        retriever=retriever,
+        retrieve_file_num=20,
+        agent_retry_times=3
     )
+    
+
     data = SwingbenchInstance(**dataset[0])
-    patch_verifier.verify(data, patch)
-    exit()
-    retriever = BM25DiskRetriever(index_dir="/raid/Swing-Bench/tmpdata/indexes")
-    dataset_jsonl_path = '/raid/Swing-Bench/tmpdata/dataset.json'
-    dataset = load_swingbench_dataset(dataset_jsonl_path)
+    patch = patch_verifier.generate(data)
+    print('generated patch: ', patch)
+    result = patch_verifier.verify(data, patch)
+    print('verify result: ', result)
+
+    # retriever = BM25DiskRetriever(index_dir="/raid/Swing-Bench/tmpdata/indexes")
+    # dataset_jsonl_path = '/raid/Swing-Bench/tmpdata/dataset.json'
+    # dataset = load_swingbench_dataset(dataset_jsonl_path)
 
 
 
-    code_editor = RawDataCodeEditor(
-        api_key=api_key,
-        base_url=base_url,
-        model=model
-    )
+    # code_editor = RawDataCodeEditor(
+    #     api_key=api_key,
+    #     base_url=base_url,
+    #     model=model
+    # )
 
-    for instance in dataset:
-        code_snippset = retriever.retrieve(instance, k=20)
-        # print(code_snippset)
-        file_path_list = [hit["docid"] for hit in code_snippset["hits"]]
-        code_snippet_list = [hit["contents"] for hit in code_snippset["hits"]]
-        response = code_editor.edit_code_batch(instance.problem_statement,
-                                         code_snippet_list,
-                                         file_path_list,
-                                         retry=3)
-        print(response)
+    # for instance in dataset:
+    #     code_snippset = retriever.retrieve(instance, k=20)
+    #     # print(code_snippset)
+    #     file_path_list = [hit["docid"] for hit in code_snippset["hits"]]
+    #     code_snippet_list = [hit["contents"] for hit in code_snippset["hits"]]
+    #     response = code_editor.edit_code_batch(instance.problem_statement,
+    #                                      code_snippet_list,
+    #                                      file_path_list,
+    #                                      retry=3)
+    #     print(response)
