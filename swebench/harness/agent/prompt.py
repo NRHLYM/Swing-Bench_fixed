@@ -21,3 +21,86 @@ class Prompt:
     def __init__(self):
         self.system_message = None
         self.user_prompt = None
+
+
+# TODO(haoran): better prompt
+# TODO(haoran): supporting more files
+# TODO(haoran): add naive function calling
+swing_patch_system_prompt = "Analyze and modify code to resolve issues while preserving functionality. You should use code_editor to process the intput field information. You should use <response>...</response> to wrap the code_editor output."
+swing_patch_retry_prompt = "The previous response is not correct because it is not a valid json object, please try again. The previous response is: "
+swing_patch_function = {
+    "name": "code_editor",
+    "description": f"{swing_patch_system_prompt}",
+    "parameters": {
+            "type": "object",
+            "properties": {
+                "reasoning_trace": {
+                    "type": "string",
+                    "description": "Step-by-step analysis of the issue, explanation of the root cause, and justification for the proposed solution"
+                },
+                "code_edits": {
+                    "type": "array",
+                    "description": "List of specific code modifications required to resolve the issue",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "file": {
+                                "type": "string",
+                                "description": "Relative path to the file that contains code requiring modification"
+                            },
+                            "code_to_be_modified": {
+                                "type": "string",
+                                "description": "Exact code segment that needs to be changed (must match a portion of the original file)"
+                            },
+                            "code_edited": {
+                                "type": "string",
+                                "description": "Improved version of the code segment that fixes the issue while maintaining compatibility with surrounding code"
+                            }
+                        },
+                        "required": ["file", "code_to_be_modified", "code_edited"]
+                    }
+                }
+            },
+        "required": ["reasoning_trace", "code_edits"]
+    }
+}
+
+
+swing_test_system_prompt = "Analyze and modify code to resolve issues while preserving functionality. You should use code_editor to process the intput field information. You should use <response>...</response> to wrap the code_editor output."
+swing_test_retry_prompt = "The previous response is not correct because it is not a valid json object, please try again. The previous response is: "
+swing_test_function = {
+    "name": "code_editor",
+    "description": f"{swing_test_system_prompt}",
+    "parameters": {
+            "type": "object",
+            "properties": {
+                "reasoning_trace": {
+                    "type": "string",
+                    "description": "Step-by-step analysis of the issue, explanation of the root cause, and justification for the proposed solution"
+                },
+                "code_edits": {
+                    "type": "array",
+                    "description": "List of specific code modifications required to resolve the issue",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "file": {
+                                "type": "string",
+                                "description": "Relative path to the file that contains code requiring modification"
+                            },
+                            "code_to_be_modified": {
+                                "type": "string",
+                                "description": "Exact code segment that needs to be changed (must match a portion of the original file)"
+                            },
+                            "code_edited": {
+                                "type": "string",
+                                "description": "Improved version of the code segment that fixes the issue while maintaining compatibility with surrounding code"
+                            }
+                        },
+                        "required": ["file", "code_to_be_modified", "code_edited"]
+                    }
+                }
+            },
+            "required": ["reasoning_trace", "code_edits"]
+        }
+    }

@@ -3,9 +3,10 @@ import json
 import os
 import re
 import subprocess
-
+import copy
 from openai import OpenAI
 from abc import ABC, abstractmethod
+from swebench.harness.agent.prompt import swing_patch_retry_prompt, swing_test_retry_prompt, swing_patch_function, swing_test_function, swing_patch_system_prompt, swing_test_system_prompt
 
 def remove_line_number(content):
     return re.sub(r"^\d+\s", "", content, flags=re.MULTILINE)
@@ -44,49 +45,8 @@ class CodeEditorBase:
 
 class RawDataCodeEditor(CodeEditorBase):
     def __init__(self, api_key: str, base_url: str, model: str):
-        self.system_prompt = "Analyze and modify code to resolve issues while preserving functionality. You should use code_editor to process the intput field information. You should use <response>...</response> to wrap the code_editor output."
-        self.retry_prompt = "The previous response is not correct because it is not a valid json object, please try again. The previous response is: "
         self.client = OpenAI(api_key=api_key, base_url=base_url)
         self.model = model
-        # TODO(haoran): better prompt
-        # TODO(haoran): supporting more files
-        # TODO(haoran): add naive function calling
-        self.function = {
-            "name": "code_editor",
-            "description": f"{self.system_prompt}",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "reasoning_trace": {
-                        "type": "string",
-                        "description": "Step-by-step analysis of the issue, explanation of the root cause, and justification for the proposed solution"
-                    },
-                    "code_edits": {
-                        "type": "array",
-                        "description": "List of specific code modifications required to resolve the issue",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "file": {
-                                    "type": "string",
-                                    "description": "Relative path to the file that contains code requiring modification"
-                                },
-                                "code_to_be_modified": {
-                                    "type": "string",
-                                    "description": "Exact code segment that needs to be changed (must match a portion of the original file)"
-                                },
-                                "code_edited": {
-                                    "type": "string",
-                                    "description": "Improved version of the code segment that fixes the issue while maintaining compatibility with surrounding code"
-                                }
-                            },
-                            "required": ["file", "code_to_be_modified", "code_edited"]
-                        }
-                    }
-                },
-                "required": ["reasoning_trace", "code_edits"]
-            }
-        }
 
     def _parse_structured_data(self, content: str) -> dict:
         pattern = r'<response>\s*(.*?)\s*</response>'
@@ -100,32 +60,34 @@ class RawDataCodeEditor(CodeEditorBase):
         except json.JSONDecodeError:
             return None, json_content
 
-    def _call_api(self, origin_input: str, retry: int = 1):
+    def _call_api(self, origin_input: str, role: str, retry: int = 1):
         input = origin_input
         function_call_args, raw_resposne = None, ""
         for i in range(retry):
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[{"role": "user", "content": input},
-                        {"role": "system", "content": self.system_prompt}],
+                        {"role": "system", "content": swing_patch_system_prompt if role == "patch" else swing_test_system_prompt}],
                 temperature=0.0,
             )
             function_call_args, raw_resposne = self._parse_structured_data(response.choices[0].message.content)
             if function_call_args == None:
-                input = origin_input + "\n " + self.retry_prompt + raw_resposne
+                input = origin_input + "\n " + \
+                    (swing_patch_retry_prompt if role == "patch" else swing_test_retry_prompt) + raw_resposne
                 continue
             else:
                 break
         return function_call_args
 
-    def edit_code(self, issue: str, original_code: str, file_path: str, retry: int = 1):
+    def edit_code(self, issue: str, original_code: str, file_path: str, role: str, retry: int = 1):
+        self.function = copy.deepcopy(swing_patch_function if role == "patch" else swing_test_function)
         self.function["input"] = {
                 "issue": issue,
                 "original_code": original_code,
                 "file_path": file_path,
         }
         origin_input = json.dumps(self.function)
-        function_call_args = self._call_api(origin_input, retry)
+        function_call_args = self._call_api(origin_input, role, retry)
         if function_call_args is None:
             return None
         return {
@@ -133,14 +95,16 @@ class RawDataCodeEditor(CodeEditorBase):
             "code_edits": function_call_args["code_edits"],
         }
 
-    def edit_code_batch(self, issue: str, original_code: list[dict], file_path_list: list[str], retry: int = 1):
+    def edit_code_batch(self, issue: str, original_code: list[dict], file_path_list: list[str], role: str, retry: int = 1):
+        self.function = copy.deepcopy(swing_patch_function if role == "patch" else swing_test_function)
         self.function["input"] = {
                 "issue": issue,
                 "original_code": original_code,
-                "file_path_list": file_path_list,
+                "file_path": file_path_list,
         }
+
         origin_input = json.dumps(self.function)
-        function_call_args = self._call_api(origin_input, retry)
+        function_call_args = self._call_api(origin_input, role, retry)
         if function_call_args is None:
             return None
         return {
@@ -375,7 +339,7 @@ if __name__ == "__main__":
         ]
     }
 
-    diffs = generate_git_diff_batch(resp["code_edits"], "/raid/rust-repos/rustzx/")
+    diffs = generate_git_diff_batch(resp["code_edits"], os.environ["SWING_REPOS_DIR_PATH"] + "/rustzx__rustzx/")
     for file_path, diff in diffs.items():
         print(f"Diff for {file_path}:")
         print(diff)
