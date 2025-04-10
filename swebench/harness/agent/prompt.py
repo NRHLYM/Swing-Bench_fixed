@@ -36,7 +36,7 @@ swing_patch_function = {
             "properties": {
                 "reasoning_trace": {
                     "type": "string",
-                    "description": "Step-by-step analysis of the issue, explanation of the root cause, and justification for the proposed solution"
+                    "description": "Step-by-step analysis of the issue, explanation of the root cause, and justification for the proposed solution. Do not use any markdown formatting."
                 },
                 "code_edits": {
                     "type": "array",
@@ -66,41 +66,49 @@ swing_patch_function = {
 }
 
 
-swing_test_system_prompt = "Analyze and modify code to resolve issues while preserving functionality. You should use code_editor to process the intput field information. You should use <response>...</response> to wrap the code_editor output."
+swing_test_system_prompt = "You are an AI Test Automation Engineer specializing in generating comprehensive unit tests. Your task is to analyze the provided code and create effective test cases that verify the functionality and edge cases. You should use <response>...</response> to wrap your JSON output. For convinience, you should not create new test files, only modify the existing test files."
 swing_test_retry_prompt = "The previous response is not correct because it is not a valid json object, please try again. The previous response is: "
 swing_test_function = {
-    "name": "code_editor",
+    "name": "test_generator",
     "description": f"{swing_test_system_prompt}",
     "parameters": {
             "type": "object",
             "properties": {
                 "reasoning_trace": {
                     "type": "string",
-                    "description": "Step-by-step analysis of the issue, explanation of the root cause, and justification for the proposed solution"
+                    "description": "Step-by-step analysis of the code, explanation of what needs to be tested, and justification for the test cases. Do not use any markdown formatting."
                 },
-                "code_edits": {
+                "test_cases": {
                     "type": "array",
-                    "description": "List of specific code modifications required to resolve the issue",
+                    "description": "List of test cases to verify the functionality of the code",
                     "items": {
                         "type": "object",
                         "properties": {
                             "file": {
                                 "type": "string",
-                                "description": "Relative path to the file that contains code requiring modification"
+                                "description": "Relative path to the test file where the test case should be added"
                             },
-                            "code_to_be_modified": {
+                            "original_patch": {
                                 "type": "string",
-                                "description": "Exact code segment that needs to be changed (must match a portion of the original file)"
+                                "description": "The original patch that provided by generator. You should not modify this patch but should investigate the existing test files and create test cases."
                             },
-                            "code_edited": {
+                            "test_name": {
                                 "type": "string",
-                                "description": "Improved version of the code segment that fixes the issue while maintaining compatibility with surrounding code"
+                                "description": "Descriptive name of the test case"
+                            },
+                            "test_code": {
+                                "type": "string",
+                                "description": "Complete test code including setup, execution, and assertions"
+                            },
+                            "test_description": {
+                                "type": "string",
+                                "description": "Brief description of what the test case verifies"
                             }
                         },
-                        "required": ["file", "code_to_be_modified", "code_edited"]
+                        "required": ["file", "test_name", "test_code", "test_description"]
                     }
                 }
             },
-            "required": ["reasoning_trace", "code_edits"]
+            "required": ["reasoning_trace", "test_cases"]
         }
     }

@@ -70,6 +70,7 @@ class RawDataCodeEditor(CodeEditorBase):
                         {"role": "system", "content": swing_patch_system_prompt if role == "patch" else swing_test_system_prompt}],
                 temperature=0.0,
             )
+            print('response: ', response.choices[0].message.content)
             function_call_args, raw_resposne = self._parse_structured_data(response.choices[0].message.content)
             if function_call_args == None:
                 input = origin_input + "\n " + \
@@ -79,38 +80,55 @@ class RawDataCodeEditor(CodeEditorBase):
                 break
         return function_call_args
 
-    def edit_code(self, issue: str, original_code: str, file_path: str, role: str, retry: int = 1):
+    def edit_code(self, issue: str, original_code: str, file_path: str, role: str, retry: int = 1, original_patch: str = None):
         self.function = copy.deepcopy(swing_patch_function if role == "patch" else swing_test_function)
         self.function["input"] = {
                 "issue": issue,
                 "original_code": original_code,
                 "file_path": file_path,
         }
+        if original_patch != None:
+            self.function["parameters"]["properties"]["test_cases"]["items"]["original_patch"] = original_patch
+
         origin_input = json.dumps(self.function)
         function_call_args = self._call_api(origin_input, role, retry)
         if function_call_args is None:
             return None
-        return {
-            "reasoning_trace": function_call_args["reasoning_trace"],
-            "code_edits": function_call_args["code_edits"],
-        }
+        if role == "patch":
+            return {
+                "reasoning_trace": function_call_args["reasoning_trace"],
+                "code_edits": function_call_args["code_edits"],
+            }
+        else:
+            return {
+                "reasoning_trace": function_call_args["reasoning_trace"],
+                "test_cases": function_call_args["test_cases"],
+            }
 
-    def edit_code_batch(self, issue: str, original_code: list[dict], file_path_list: list[str], role: str, retry: int = 1):
+    def edit_code_batch(self, issue: str, original_code: list[dict], file_path_list: list[str], role: str, retry: int = 1, original_patch: str = None):
         self.function = copy.deepcopy(swing_patch_function if role == "patch" else swing_test_function)
         self.function["input"] = {
                 "issue": issue,
                 "original_code": original_code,
                 "file_path": file_path_list,
         }
+        if original_patch != None:
+            self.function["parameters"]["properties"]["test_cases"]["items"]["original_patch"] = original_patch
 
         origin_input = json.dumps(self.function)
         function_call_args = self._call_api(origin_input, role, retry)
         if function_call_args is None:
             return None
-        return {
-            "reasoning_trace": function_call_args["reasoning_trace"],
-            "code_edits": function_call_args["code_edits"],
-        }
+        if role == "patch":
+            return {
+                "reasoning_trace": function_call_args["reasoning_trace"],
+                "code_edits": function_call_args["code_edits"],
+            }
+        else:
+            return {
+                "reasoning_trace": function_call_args["reasoning_trace"],
+                "test_cases": function_call_args["test_cases"],
+            }
 
 
 # TODO(haoran): use flake8 to lint the code

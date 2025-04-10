@@ -14,6 +14,12 @@ from swebench.harness.swing_utils import (
     load_swingbench_dataset,
 )
 
+from swebench.harness.agent.model import ModelInfo
+from swebench.harness.agent.verifier import PatchVerifier, TestVerifier, PatchGenerator, TestGenerator
+from swebench.harness.agent.code_editor import RawDataCodeEditor
+from swebench.harness.agent.retriever import BM25DiskRetriever
+
+
 if platform.system() == "Linux":
     import resource
 
@@ -31,9 +37,10 @@ logger = logging.getLogger("agent_battle")
 # TODO(haoran): concurrent execution
 def battle(
     dataset: List[SwingbenchInstance],
-    agent_one: AgentProxy,
-    agent_two: AgentProxy,
-    verifier: Verifier,
+    patch_generator: PatchGenerator,
+    test_generator: TestGenerator,
+    patch_verifier: PatchVerifier,
+    test_verifier: TestVerifier,
     turns: int = 10,
 ):
     """
@@ -48,34 +55,34 @@ def battle(
 
     temperatures = [1 - (i / turns) for i in range(turns)] # fixed temperature: 1 -> 0
     for data in dataset:
-        patch_agent, test_agent = agent_one, agent_two
-        for i in range(turns):
-            patch = patch_agent.generate_patch(data, temperature=temperatures[i])
-            if not verifier.verify_patch(data, patch): # patch failed
-                patch_agent.score -= 1
-                patch_agent, test_agent = test_agent, patch_agent
-                continue
+        pass
+        # patch_agent, test_agent = agent_one, agent_two
+        # for i in range(turns):
+        #     patch = patch_agent.generate_patch(data, temperature=temperatures[i])
+        #     if not verifier.verify_patch(data, patch): # patch failed
+        #         patch_agent.score -= 1
+        #         patch_agent, test_agent = test_agent, patch_agent
+        #         continue
 
-            test = test_agent.generate_test(data, temperature=temperatures[i])
-            if not verifier.verify_test(data, test): # test failed
-                test_agent.score -= 1
-                patch_agent, test_agent = test_agent, patch_agent
-                continue
+        #     test = test_agent.generate_test(data, temperature=temperatures[i])
+        #     if not verifier.verify_test(data, test): # test failed
+        #         test_agent.score -= 1
+        #         patch_agent, test_agent = test_agent, patch_agent
+        #         continue
 
-            if verifier.verify_patch(data, patch, test): # patch and test both passed
-                patch_agent.score += 1
-            else:
-                test_agent.score += 1
+        #     if verifier.verify_patch(data, patch, test): # patch and test both passed
+        #         patch_agent.score += 1
+        #     else:
+        #         test_agent.score += 1
 
-            patch_agent, test_agent = test_agent, patch_agent
-
-    return [agent_one.score, agent_two.score]
+        #     patch_agent, test_agent = test_agent, patch_agent
+    return None
 
 def main(
     agent: str,
     dataset_name: str,
-    target_dir: str,
-    report_dir: str,
+    workdir: str,
+    src_folder: str,
     open_file_limit: int,
 ):
     """
@@ -93,24 +100,44 @@ def main(
     agent = agent.split(",")
     logger.info(f"Processing {dataset_name} for agent {agent[0]} and agent {agent[1]}")
 
-    # Create target directory if it doesn't exist
-    expanded_path = os.path.expanduser(target_dir)
-    Path(expanded_path).mkdir(parents=True, exist_ok=True)
-    
-    # Create base report directory if it doesn't exist
-    expanded_path = os.path.expanduser(report_dir)
-    Path(expanded_path).mkdir(parents=True, exist_ok=True)
-
     if platform.system() == "Linux":
         logger.info(f"Setting open file limit to {open_file_limit}")
         resource.setrlimit(resource.RLIMIT_NOFILE, (open_file_limit, open_file_limit))
 
     dataset = load_swingbench_dataset(dataset_name)
 
-    agent_one = AgentProxy(agent[0])
-    agent_two = AgentProxy(agent[1])
+    retriever = BM25DiskRetriever(index_dir=os.environ["SWING_INDEXES_PATH"])
 
-    result = battle(dataset, agent_one, agent_two)
+    code_editor = RawDataCodeEditor(
+        api_key=os.environ["SWING_CODE_EDITOR_API_KEY"],
+        base_url=os.environ["SWING_CODE_EDITOR_BASE_URL"],
+        model=os.environ["SWING_CODE_EDITOR_MODEL"]
+    )
+
+    patch_verifier = PatchVerifier(ci_tool_name="cargo", 
+        workdir=workdir, 
+        src_folder=src_folder, 
+    )
+    test_verifier = TestVerifier(ci_tool_name="cargo", 
+        workdir=workdir, 
+        src_folder=src_folder, 
+    )
+    patch_generator = PatchGenerator(workdir=workdir, 
+        src_folder=src_folder, 
+        code_editor=code_editor,
+        retriever=retriever,
+        retrieve_file_num=20,
+        agent_retry_times=3
+    )
+    test_generator = TestGenerator(workdir=workdir, 
+        src_folder=src_folder, 
+        code_editor=code_editor,
+        retriever=retriever,
+        retrieve_file_num=20,
+        agent_retry_times=3
+    )
+
+    result = battle(dataset, patch_generator, test_generator, patch_verifier, test_verifier)
 
 if __name__ == "__main__":
     parser = ArgumentParser(
@@ -137,49 +164,11 @@ if __name__ == "__main__":
     parser.add_argument(
         "--open_file_limit", type=int, default=4096, help="Open file limit"
     )
-    # parser.add_argument(
-    #     "--timeout",
-    #     type=int,
-    #     default=600,
-    #     help="Timeout (in seconds) for running tests for each instance",
-    # )
     parser.add_argument(
         "--report_dir", type=str, default="./report", help="Directory to write reports to"
     )
     parser.add_argument(
         "--target_dir", type=str, default="./testbed", help="Directory to clone repo to"
     )
-    # parser.add_argument(
-    #     "--src_folder", 
-    #     type=str, 
-    #     default="/raid/rust-repos", 
-    #     help="Source folder containing Rust repositories"
-    # )
-    # parser.add_argument(
-    #     "--ci_tool",
-    #     type=str,
-    #     choices=["act", "cargo"],
-    #     default="act",
-    #     help="CI tool to use for testing (act or cargo)"
-    # )
-    # parser.add_argument(
-    #     "--concurrent_workers",
-    #     type=int,
-    #     default=1,
-    #     help="Number of concurrent workers (1 means sequential execution)"
-    # )
-    # parser.add_argument(
-    #     "--start_index",
-    #     type=int,
-    #     default=0,
-    #     help="Index of first instance to process"
-    # )
-    # parser.add_argument(
-    #     "--max_instances",
-    #     type=int,
-    #     default=None,
-    #     help="Maximum number of instances to process"
-    # )
-
     args = parser.parse_args()
     main(**vars(args))
