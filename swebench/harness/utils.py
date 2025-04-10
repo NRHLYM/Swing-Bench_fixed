@@ -23,6 +23,7 @@ from queue import Queue
 
 load_dotenv()
 
+# TODO(wdxu): remove this class.
 class PortPool:
     def __init__(self, ports=[34567, 34568, 34569, 34570]):
         self.ports = ports
@@ -397,3 +398,7 @@ def get_modified_files(patch: str) -> list[str]:
             source_files.append(file.source_file)
     source_files = [x[2:] for x in source_files if x.startswith("a/")]
     return source_files
+
+# TODO(wdxu): remove this function.
+def get_available_port_pool(port_pool_size: int):
+    return PortPool(ports=list(range(32000, 32000 + port_pool_size)))

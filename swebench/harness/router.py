@@ -102,7 +102,8 @@ class CargoCITool(CIToolBase):
                          eval_script=eval_script,
                          patch=self.config["patch"],
                          target_dir=target_dir,
-                         output_dir=self.config["output_dir"])
+                         output_dir=self.config["output_dir"],
+                         apply_patch=self.config["apply_patch"])
 
     def parse_test_results(self, output):
         passed_pattern = r"test ([\w:]+) \.\.\. ok"
@@ -131,7 +132,7 @@ class CargoCITool(CIToolBase):
     def run_ci(self):
         """Run tests and save results to log file"""
         try:
-            logger.info(f"Starting CI run for {self.config['repo']} (ID: {self.config.get('id', 'unknown')})")
+            logger.info(f"Starting CI run for {self.config['repo']} (ID: {self.config.get('instance_id', 'unknown')})")
 
             task = self.task
             self._execute_scripts(cwd=task.target_dir)
@@ -239,21 +240,30 @@ class ActCITool(CIToolBase):
 
         self.construct()
 
+    # TODO(wdxu): make these two functions to be public methods.
     def _build_repo_base_env(self):
         script = ["#!/bin/bash"]
-        script.extend(["cd " + self.config["workdir"],
-                       "git clone https://github.com/" + self.config["repo"] + ".git " + self.cloned_repo_path])
+        
+        repo_dir_name = self.config["repo"].replace('/', '__')
+        instance_id = self.config.get("instance_id", "unknown")
+        src_path = os.path.join(self.config["src_folder"], repo_dir_name)
+        dst_path = os.path.join(self.config["workdir"], f"{self.config['repo'].split('/')[1]}_{instance_id}")
+        
+        script.append(f"mkdir -p {dst_path}")
+        script.append(f"cp -r {src_path}/. {dst_path}/")
 
         return script
 
     def _build_eval_script(self):
-        target_dir = os.path.join(self.config["workdir"], self.cloned_repo_path)
-
+        instance_id = self.config.get("instance_id", "unknown")
+        target_dir = os.path.join(self.config["workdir"], f"{self.config['repo'].split('/')[1]}_{instance_id}")
+        
         script = ["#!/bin/bash", 
-                    "cd " + target_dir,
-                    "git stash -u || true"
-                ]
-
+                  f"cd {target_dir}",
+                 ]
+        
+        script.append("git stash -u || true")
+        
         if "merge_commit" in self.config and self.config["merge_commit"]:
             script.append("git checkout " + self.config["merge_commit"])
             
@@ -268,7 +278,9 @@ class ActCITool(CIToolBase):
                 patch_file = f"{target_dir}/patch.diff"
                 script.append(f"cat > {patch_file} << 'EOL'\n{self.config['patch']}\nEOL")
                 script.append(f"git apply {patch_file} || echo 'Failed to apply patch'")
+
         return script
+
 
     def _get_ci_job_name_id_dict(self, target_dir):
         def _extract_jobs(filename):
@@ -393,13 +405,14 @@ class ActCITool(CIToolBase):
                                                         "stage": processed_output["stage"],
                                                         "step": processed_output["step"],
                                                         "stepID": processed_output["stepID"]})
-
         return processed_result
 
     def run_ci(self, pool):
         task = self.task
         run_script("\n".join(task.env_script))
         run_script("\n".join(task.eval_script))
+
+        logger.info(f"Starting CI run for {self.config['repo']} (ID: {self.config.get('instance_id', 'unknown')})")
 
         self._get_ci_job_name_id_dict(task.target_dir)
         threads = []
@@ -414,24 +427,24 @@ class ActCITool(CIToolBase):
             thread.join()
 
         # os.system("rm -rf " + task.target_dir)
-
-        return ActCITool._process_result(self.result_list)
+        result = ActCITool._process_result(self.result_list)
+        logger.info(f"CI run completed for {self.config['repo']} (ID: {self.config.get('instance_id', 'unknown')})")
+        return result
 
     def construct(self):
         env_script = self._build_repo_base_env()
         eval_script = self._build_eval_script()
 
-        target_dir = os.path.join(self.config["workdir"],
-                                  self.cloned_repo_path)
-
-        self.task = Task(instance_id=self.config["instance_id"],
+        instance_id = self.config.get("instance_id", "unknown")
+        target_dir = os.path.join(self.config["workdir"], f"{self.config['repo'].split('/')[1]}_{instance_id}")
+        
+        self.task = Task(instance_id=instance_id,
                          env_script=env_script,
                          eval_script=eval_script,
                          patch=self.config["patch"],
                          target_dir=target_dir,
                          output_dir=self.config["output_dir"],
                          apply_patch=self.config["apply_patch"])
-
 
 EVAL_HANDLER = {
     "cargo": CargoCITool,
@@ -469,6 +482,7 @@ if __name__ == '__main__':
                      "merge_commit": "2dcabf3769c2613687310c7b71b89af681e8ee50", \
                      "patch": "", \
                      "apply_patch": True, \
+                     "src_folder": os.environ["SWING_TESTBED_PATH"], \
                      "workdir": os.environ["SWING_TESTBED_PATH"], \
                      "ci_name_list": [["test", ".github/workflows/main.yml"]], \
                      "output_dir": os.environ["SWING_TESTBED_PATH"]})

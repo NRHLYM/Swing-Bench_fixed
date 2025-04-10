@@ -14,7 +14,7 @@ from swebench.harness.agent.utils import parse_testcase, apply_git_patch, files_
 from swebench.harness.agent.editor import generate_git_diff_batch
 from swebench.harness.agent.retriever import Retriever
 from swebench.harness.agent.editor import CodeEditorBase
-
+from swebench.harness.utils import get_available_port_pool
 
 class Verifier:
     @abstractmethod
@@ -125,6 +125,7 @@ class PatchVerifier(Verifier):
         self.ci_tool_name = ci_tool_name
         self.workdir = workdir
         self.src_folder = src_folder
+        self.port_pool_size = 100
 
     def verify(self, data: SwingbenchInstance, patch: str):
         data.patch = patch
@@ -147,7 +148,13 @@ class PatchVerifier(Verifier):
         }
         ci_tool = EVAL_HANDLER.get(self.ci_tool_name)
         tool = ci_tool(config)
-        result = tool.run_ci()
+
+        # TODO(wdxu): remove the switch process for run_ci.
+        if self.ci_tool_name == "act":
+            pool = get_available_port_pool(self.port_pool_size)
+            result = tool.run_ci(pool)
+        else:
+            result = tool.run_ci()
 
         # haoran: FOR CARGO
         # test_results = {
@@ -185,6 +192,7 @@ class TestVerifier(Verifier):
         self.workdir = workdir
         self.src_folder = src_folder
         self.proxy = proxy
+        self.port_pool_size = 100
 
     def verify(self, data: SwingbenchInstance, testcase: str):
         # TODO(haoran): add more languages
@@ -206,7 +214,13 @@ class TestVerifier(Verifier):
         }
         ci_tool = EVAL_HANDLER.get(self.ci_tool_name)
         tool = ci_tool(config)
-        result = tool.run_ci()
+
+        # TODO(wdxu): remove the switch process for run_ci.
+        if self.ci_tool_name == "act":
+            pool = get_available_port_pool(self.port_pool_size)
+            result = tool.run_ci(pool)
+        else:
+            result = tool.run_ci()
 
         # haoran: FOR CARGO
         # test_results = {
@@ -243,9 +257,9 @@ if __name__ == "__main__":
     
     SWING_DEBUG_GENERATE_DRYRUN = False
     
-    base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    api_key = os.environ["QWEN_API_KEY"]
-    model = "qwen-plus"
+    base_url = "https://api.x.ai/v1/"
+    api_key = os.environ["XAI_API_KEY"]
+    model = "grok-2-latest"
 
     with open(os.environ["SWING_DEMO_DATASET_PATH"], "r") as f:
         dataset = json.load(f)
