@@ -107,7 +107,7 @@ class TestGenerator(Generator):
 
     def generate(self, data: SwingbenchInstance):
         # TODO(wdxu): remove this hack.
-        data["hits"] = "test, testcase, unittest."
+        data["hints_text"] += "test, testcase, unittest."
         code_snippset = self.retriever.retrieve(data, k=self.retrieve_file_num)
         file_path_list = [hit["docid"] for hit in code_snippset["hits"]]
         code_snippet_list = [hit["contents"] for hit in code_snippset["hits"]]
