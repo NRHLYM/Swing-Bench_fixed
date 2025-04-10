@@ -20,7 +20,7 @@ def search_instance(
 ) -> dict:
     repo = instance.repo
     commit = instance.base_commit
-    query = instance.problem_statement
+    query = instance.problem_statement + " " + instance.hints_text
     
     index_path = (
         index_root / 
