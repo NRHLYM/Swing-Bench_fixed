@@ -68,9 +68,7 @@ class PatchGenerator(Generator):
                                          role="patch",
                                          retry=self.agent_retry_times)
         base_path = f"{self.workdir}/{data.instance_id}_{str(uuid4())}"
-        if os.path.exists(base_path):
-            shutil.rmtree(base_path)
-        os.makedirs(base_path, exist_ok=True)
+        print('patch generator: creating base path: ', base_path)
 
         # convert repo path from x/y to x__y
         repo_path = f"{self.src_folder}/{data.repo.replace('/', '__')}"
@@ -83,8 +81,8 @@ class PatchGenerator(Generator):
         subprocess.run(["git", "checkout", data.base_commit], cwd=base_path)
 
         patch = generate_git_diff_batch(response["code_edits"], base_path)
-        if os.path.exists(base_path):
-            shutil.rmtree(base_path)
+        # if os.path.exists(base_path):
+        #     shutil.rmtree(base_path)
         return patch
 
 
@@ -106,6 +104,7 @@ class TestGenerator(Generator):
         self.original_patch = original_patch
 
     def generate(self, data: SwingbenchInstance):
+        print('test generator: data: ', data)
         # TODO(wdxu): remove this hack.
         data.hints_text += "test, testcase, unittest."
         code_snippset = self.retriever.retrieve(data, k=self.retrieve_file_num)
@@ -117,11 +116,9 @@ class TestGenerator(Generator):
                                          role="test",
                                          retry=self.agent_retry_times,
                                          original_patch=self.original_patch)
-
+        print('test generator: response: ', response)
         base_path = f"{self.workdir}/{data.instance_id}_{str(uuid4())}"
-        if os.path.exists(base_path):
-            shutil.rmtree(base_path)
-        os.makedirs(base_path, exist_ok=True)
+        print('test generator: creating base path: ', base_path)
 
         # convert repo path from x/y to x__y
         repo_path = f"{self.src_folder}/{data.repo.replace('/', '__')}"
@@ -135,7 +132,16 @@ class TestGenerator(Generator):
 
         code_edits = []
         for test_case in response["test_cases"]:
-            file_path = test_case["file"]
+            file_path = os.path.join(base_path, test_case["file"])
+            print('test generator: test case file_path: ', file_path)
+            # make sure the directory exists
+            file_dir = os.path.dirname(file_path)
+            if file_dir:
+                full_dir_path = os.path.join(base_path, file_dir)
+                if not os.path.exists(full_dir_path):
+                    print(f"Creating directory: {full_dir_path}")
+                    os.makedirs(full_dir_path, exist_ok=True)
+            
             test_code = test_case["test_code"]
             
             code_edits.append({
@@ -145,8 +151,8 @@ class TestGenerator(Generator):
             })
 
         patch = generate_git_diff_batch(code_edits, base_path)
-        if os.path.exists(base_path):
-            shutil.rmtree(base_path)
+        # if os.path.exists(base_path):
+        #     shutil.rmtree(base_path)
         return patch
 
 
@@ -228,6 +234,7 @@ class TestVerifier(Verifier):
         self.port_pool_size = 100
 
     def verify(self, data: SwingbenchInstance, testcase: str):
+        # apply both test patch and original patch
         base_path = f"{self.workdir}/{data.instance_id}_{str(uuid4())}"
         if os.path.exists(base_path):
             shutil.rmtree(base_path)

@@ -66,7 +66,7 @@ swing_patch_function = {
 }
 
 
-swing_test_system_prompt = "You are an AI Test Automation Engineer specializing in generating comprehensive unit tests. Your task is to analyze the provided code and create effective test cases that verify the functionality and edge cases. You should use <response>...</response> to wrap your JSON output. For convinience, you should not create new test files, only modify the existing test files."
+swing_test_system_prompt = "You are an AI Test Automation Engineer specializing in generating comprehensive unit tests. Your task is to analyze the provided code and create effective test cases that verify the functionality and edge cases. You should use <response>...</response> to wrap your JSON output. You should only propose less than 10 test cases."
 swing_test_retry_prompt = "The previous response is not correct because it is not a valid json object, please try again. The previous response is: "
 swing_test_function = {
     "name": "test_generator",
@@ -80,7 +80,7 @@ swing_test_function = {
                 },
                 "test_cases": {
                     "type": "array",
-                    "description": "List of test cases to verify the functionality of the code",
+                    "description": "List of test cases to verify the functionality of the code. For each test case, you should provide unique file name.",
                     "items": {
                         "type": "object",
                         "properties": {

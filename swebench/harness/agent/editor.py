@@ -69,6 +69,8 @@ class RawDataCodeEditor(CodeEditorBase):
                 messages=[{"role": "user", "content": input},
                         {"role": "system", "content": swing_patch_system_prompt if role == "patch" else swing_test_system_prompt}],
                 temperature=0.0,
+                max_completion_tokens=32768,
+                
             )
             print('response: ', response.choices[0].message.content)
             function_call_args, raw_resposne = self._parse_structured_data(response.choices[0].message.content)
@@ -226,8 +228,11 @@ def generate_git_diff_batch(code_edits, base_path):
                 with open(original_file_path_in_base, 'r') as f:
                     original_content = f.read()
             except FileNotFoundError:
-                print(f"Warning: Original file not found at {original_file_path_in_base}")
-                continue
+                print(f"Warning: Original file not found at {original_file_path_in_base}. Create a new file with the same name.")
+                # generate a new file with the same name
+                with open(original_file_path_in_base, 'w') as f:
+                    f.write("")
+                    original_content = ""
             
             modified_content = original_content
             
