@@ -304,7 +304,7 @@ if __name__ == "__main__":
             src_folder=os.environ["SWING_REPOS_DIR_PATH"], 
             code_editor=code_editor,
             retriever=retriever,
-            retrieve_file_num=20,
+            retrieve_file_num=5,
             agent_retry_times=3
         )
         patch = patch_generator.generate(data)
@@ -326,7 +326,7 @@ if __name__ == "__main__":
             src_folder=os.environ["SWING_REPOS_DIR_PATH"], 
             code_editor=code_editor,
             retriever=retriever,
-            retrieve_file_num=20,
+            retrieve_file_num=5,
             agent_retry_times=3,
             original_patch=patch
         )

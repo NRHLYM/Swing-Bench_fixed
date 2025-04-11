@@ -196,10 +196,11 @@ def lint_code(code: str, prev_code: str = ""):
             
         return True, set(), set()
 
+# TODO(wdxu): rewrite this function.
 def generate_git_diff_batch(code_edits, base_path):
     """
     Creates git diffs by applying all edits to original files and generating diffs.
-    Handles code snippets with different indentation levels.
+    Handles both existing file modifications and new file creation.
     
     Args:
         code_edits: List of code edit objects containing file, code_to_be_modified, and code_edited
@@ -220,39 +221,44 @@ def generate_git_diff_batch(code_edits, base_path):
         subprocess.run("git init -b main -q", shell=True, cwd=tmp_dir)
         subprocess.run("git config user.name 'test'", shell=True, cwd=tmp_dir)
         subprocess.run("git config user.email 'test@example.com'", shell=True, cwd=tmp_dir)
-        
+
         for file_path, file_edits in edits_by_file.items():
+            print('file_path: ', file_path)
+            print('file_edits: ', file_edits)
+            
+            file_dir = os.path.dirname(file_path)
+            if file_dir:
+                os.makedirs(os.path.join(tmp_dir, file_dir), exist_ok=True)
+                os.makedirs(os.path.join(base_path, file_dir), exist_ok=True)
+            
+            temp_file_path = os.path.join(tmp_dir, file_path)
             original_file_path_in_base = os.path.join(base_path, file_path)
-            new_file_path_in_base = os.path.join(tmp_dir, base_path, file_path)
-
-            # if the directory does not exist, create it
-            if not os.path.exists(os.path.dirname(original_file_path_in_base)):
-                os.makedirs(os.path.dirname(original_file_path_in_base))
-
-            original_content = ""
-            if not os.path.exists(original_file_path_in_base):
-                print(f"Warning: Original file not found at {original_file_path_in_base} Create a new empty file with the same name.")
-                # generate a new file with the same name
+            
+            file_exists = os.path.exists(original_file_path_in_base)
+            if not file_exists:
+                print(f"Warning: Original file not found at {original_file_path_in_base}. Creating a new file.")
                 subprocess.run(f"touch {original_file_path_in_base}", shell=True)
-                subprocess.run(f"touch {new_file_path_in_base}", shell=True)
-
-            with open(original_file_path_in_base, 'r') as f:
-                original_content = f.read()
-
+            
+            original_content = ""
+            if file_exists:
+                with open(original_file_path_in_base, 'r') as f:
+                    original_content = f.read()
+            
             modified_content = original_content
+            is_new_file = not file_exists
             
             for edit in file_edits:
-                # hack this by checking whether the edit dict has `code_to_be_modified` item.
                 if "code_to_be_modified" in edit:
-                    # patch case
                     code_to_be_modified = edit["code_to_be_modified"]
                     code_edited = edit["code_edited"]
                 else:
-                    # test case
-                    code_to_be_modified = edit["file"]
+                    code_to_be_modified = ""
                     code_edited = edit["test_code"]
-                    
-                # First try direct replacement
+                
+                if is_new_file:
+                    modified_content = code_edited
+                    break
+                
                 if code_to_be_modified in modified_content:
                     modified_content = modified_content.replace(code_to_be_modified, code_edited)
                     continue
@@ -260,14 +266,12 @@ def generate_git_diff_batch(code_edits, base_path):
                 # If direct replacement fails, try to match the code ignoring indentation
                 found = False
                 
-                # Normalize the code snippet (remove leading whitespace from each line)
                 def normalize_code(code):
                     lines = code.split('\n')
                     normalized_lines = [line.lstrip() for line in lines]
                     return '\n'.join(normalized_lines)
                 
                 normalized_snippet = normalize_code(code_to_be_modified)
-                
                 content_lines = modified_content.split('\n')
                 for i in range(len(content_lines)):
                     if normalized_snippet.split('\n')[0] in content_lines[i].lstrip():
@@ -294,16 +298,13 @@ def generate_git_diff_batch(code_edits, base_path):
                             break
                 
                 if not found:
-                    print(f"Warning: Could not find the code segment to be modified in {file_path}")
-                    print(f"Segment: {code_to_be_modified[:50]}...")
-            
-            file_dir = os.path.dirname(file_path)
-            if file_dir:
-                os.makedirs(os.path.join(tmp_dir, file_dir), exist_ok=True)
-            
-            temp_file_path = os.path.join(tmp_dir, file_path)
+                    print(f"Could not find the code segment to be modified in {file_path}. Creating a new file with the edited code.")
+                    modified_content = code_edited
+                    is_new_file = True
+                    break
             
             with open(temp_file_path, "w") as f:
+                print(f"Writing original content to {temp_file_path}")
                 f.write(original_content)
             
             subprocess.run(
@@ -313,6 +314,7 @@ def generate_git_diff_batch(code_edits, base_path):
             )
             
             with open(temp_file_path, "w") as f:
+                print(f"Writing modified content to {temp_file_path}")
                 f.write(modified_content)
             
             result = subprocess.run(
@@ -329,7 +331,7 @@ def generate_git_diff_batch(code_edits, base_path):
                 shell=True,
                 cwd=tmp_dir
             )
-            
+
     return diffs
 
 if __name__ == "__main__":
