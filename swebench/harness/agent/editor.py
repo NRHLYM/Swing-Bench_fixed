@@ -241,11 +241,17 @@ def generate_git_diff_batch(code_edits, base_path):
 
             modified_content = original_content
             
-            # TODO(wdxu): adapt test-generation case.
             for edit in file_edits:
-                code_to_be_modified = edit["code_to_be_modified"]
-                code_edited = edit["code_edited"]
-                
+                # hack this by checking whether the edit dict has `code_to_be_modified` item.
+                if "code_to_be_modified" in edit:
+                    # patch case
+                    code_to_be_modified = edit["code_to_be_modified"]
+                    code_edited = edit["code_edited"]
+                else:
+                    # test case
+                    code_to_be_modified = edit["test_name"]
+                    code_edited = edit["test_code"]
+                    
                 # First try direct replacement
                 if code_to_be_modified in modified_content:
                     modified_content = modified_content.replace(code_to_be_modified, code_edited)
