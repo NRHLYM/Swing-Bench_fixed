@@ -85,13 +85,13 @@ class AgentProxy:
             data (SwingbenchInstance): a piece of data from dataset
         """
         issue = data.problem_statement + "\n" + data.hints_text
-        code_snippset = None
+        code_snippet = None
         if retriever is not None:
-            # get code_snippset from retriever
-            code_snippset = retriever.retrieve(data)
+            # get code_snippet from retriever
+            code_snippet = retriever.retrieve(data)
         prompt = Prompt()
         prompt.system_message = system_msg
-        prompt.user_prompt = user_prompt_tpl.format(issue=issue, code_snippset=code_snippset)
+        prompt.user_prompt = user_prompt_tpl.format(issue=issue, code_snippet=code_snippet)
 
         return self._call_api(prompt)
 
@@ -105,13 +105,13 @@ class AgentProxy:
         issue = data.problem_statement + "\n" + data.hints_text
         patch = data.patch
         sample = data.test_patch
-        code_snippset = None
+        code_snippet = None
         if retriever is not None:
-            # get code_snippset from retriever
-            code_snippset = retriever.retrieve(data)
+            # get code_snippet from retriever
+            code_snippet = retriever.retrieve(data)
         prompt = Prompt()
         prompt.system_message = system_msg
-        prompt.user_prompt = user_prompt_tpl.format(issue=issue, code_snippset=code_snippset, patch=patch, sample=sample)
+        prompt.user_prompt = user_prompt_tpl.format(issue=issue, code_snippet=code_snippet, patch=patch, sample=sample)
 
         return self._call_api(prompt)
 

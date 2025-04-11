@@ -12,7 +12,7 @@ GENERATE_TEST_SYSTEM_MESSAGE = "You are an AI Test Automation Engineer specializ
                                 "You should only generate the test code, without any other text or markdown formatting."
 GENERATE_TEST_TEMPLATE = "You are required to develop unit tests for the specified code and its fix.\n" \
                           "The issue details: {issue}\n" \
-                          "The code snippet: {code_snippset}\n" \
+                          "The code snippet: {code_snippet}\n" \
                           "The fixed code: {patch}\n" \
                           "The test case sample: {sample}\n" \
                           "Please provide the complete test code without any explanations or markdown."
@@ -87,10 +87,6 @@ swing_test_function = {
                             "file": {
                                 "type": "string",
                                 "description": "Relative path to the test file where the test case should be added"
-                            },
-                            "original_patch": {
-                                "type": "string",
-                                "description": "The original patch that provided by generator. You should not modify this patch but should investigate the existing test files and create test cases."
                             },
                             "test_name": {
                                 "type": "string",

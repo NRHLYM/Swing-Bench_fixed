@@ -160,7 +160,7 @@ class CargoCITool(CIToolBase):
             logger.error(f"Task failed with exception: {str(e)}")
             import traceback
             traceback.print_exc()
-            return {"unit_test", {
+            return {"unit_test": {
                 "returncode": 1,
                 "error": str(e),
                 "test_results": {"passed": [], "failed": [], "ignored": [], "failure_details": {}}

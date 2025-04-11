@@ -90,7 +90,7 @@ class RawDataCodeEditor(CodeEditorBase):
                 "file_path": file_path,
         }
         if original_patch != None:
-            self.function["parameters"]["properties"]["test_cases"]["items"]["original_patch"] = original_patch
+            self.function["input"]["original_patch"] = original_patch
 
         origin_input = json.dumps(self.function)
         function_call_args = self._call_api(origin_input, role, retry)
@@ -115,7 +115,7 @@ class RawDataCodeEditor(CodeEditorBase):
                 "file_path": file_path_list,
         }
         if original_patch != None:
-            self.function["parameters"]["properties"]["test_cases"]["items"]["original_patch"] = original_patch
+            self.function["input"]["original_patch"] = original_patch
 
         origin_input = json.dumps(self.function)
         function_call_args = self._call_api(origin_input, role, retry)
@@ -223,19 +223,25 @@ def generate_git_diff_batch(code_edits, base_path):
         
         for file_path, file_edits in edits_by_file.items():
             original_file_path_in_base = os.path.join(base_path, file_path)
-            
-            try:
-                with open(original_file_path_in_base, 'r') as f:
-                    original_content = f.read()
-            except FileNotFoundError:
-                print(f"Warning: Original file not found at {original_file_path_in_base}. Create a new file with the same name.")
+            new_file_path_in_base = os.path.join(tmp_dir, base_path, file_path)
+
+            # if the directory does not exist, create it
+            if not os.path.exists(os.path.dirname(original_file_path_in_base)):
+                os.makedirs(os.path.dirname(original_file_path_in_base))
+
+            original_content = ""
+            if not os.path.exists(original_file_path_in_base):
+                print(f"Warning: Original file not found at {original_file_path_in_base} Create a new empty file with the same name.")
                 # generate a new file with the same name
-                with open(original_file_path_in_base, 'w') as f:
-                    f.write("")
-                    original_content = ""
-            
+                subprocess.run(f"touch {original_file_path_in_base}", shell=True)
+                subprocess.run(f"touch {new_file_path_in_base}", shell=True)
+
+            with open(original_file_path_in_base, 'r') as f:
+                original_content = f.read()
+
             modified_content = original_content
             
+            # TODO(wdxu): adapt test-generation case.
             for edit in file_edits:
                 code_to_be_modified = edit["code_to_be_modified"]
                 code_edited = edit["code_edited"]

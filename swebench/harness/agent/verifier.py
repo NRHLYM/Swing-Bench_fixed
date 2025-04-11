@@ -59,9 +59,9 @@ class PatchGenerator(Generator):
         """
         Generate a patch for the given Swingbench instance.
         """
-        code_snippset = self.retriever.retrieve(data, k=self.retrieve_file_num)
-        file_path_list = [hit["docid"] for hit in code_snippset["hits"]]
-        code_snippet_list = [hit["contents"] for hit in code_snippset["hits"]]
+        code_snippet = self.retriever.retrieve(data, k=self.retrieve_file_num)
+        file_path_list = [hit["docid"] for hit in code_snippet["hits"]]
+        code_snippet_list = [hit["contents"] for hit in code_snippet["hits"]]
         response = self.code_editor.edit_code_batch(data.problem_statement,
                                          code_snippet_list,
                                          file_path_list,
@@ -107,9 +107,9 @@ class TestGenerator(Generator):
         print('test generator: data: ', data)
         # TODO(wdxu): remove this hack.
         data.hints_text += "test, testcase, unittest."
-        code_snippset = self.retriever.retrieve(data, k=self.retrieve_file_num)
-        file_path_list = [hit["docid"] for hit in code_snippset["hits"]]
-        code_snippet_list = [hit["contents"] for hit in code_snippset["hits"]]
+        code_snippet = self.retriever.retrieve(data, k=self.retrieve_file_num)
+        file_path_list = [hit["docid"] for hit in code_snippet["hits"]]
+        code_snippet_list = [hit["contents"] for hit in code_snippet["hits"]]
         response = self.code_editor.edit_code_batch(data.problem_statement,
                                          code_snippet_list,
                                          file_path_list,
@@ -130,27 +130,7 @@ class TestGenerator(Generator):
         shutil.copytree(repo_path, base_path)
         subprocess.run(["git", "checkout", data.base_commit], cwd=base_path)
 
-        code_edits = []
-        for test_case in response["test_cases"]:
-            file_path = os.path.join(base_path, test_case["file"])
-            print('test generator: test case file_path: ', file_path)
-            # make sure the directory exists
-            file_dir = os.path.dirname(file_path)
-            if file_dir:
-                full_dir_path = os.path.join(base_path, file_dir)
-                if not os.path.exists(full_dir_path):
-                    print(f"Creating directory: {full_dir_path}")
-                    os.makedirs(full_dir_path, exist_ok=True)
-            
-            test_code = test_case["test_code"]
-            
-            code_edits.append({
-                "file": file_path,
-                "code_to_be_modified": "",
-                "code_edited": test_code
-            })
-
-        patch = generate_git_diff_batch(code_edits, base_path)
+        patch = generate_git_diff_batch(response["test_cases"], base_path)
         # if os.path.exists(base_path):
         #     shutil.rmtree(base_path)
         return patch
@@ -296,9 +276,13 @@ if __name__ == "__main__":
     
     SWING_DEBUG_GENERATE_DRYRUN = False
     
-    base_url = "https://api.x.ai/v1/"
-    api_key = os.environ["XAI_API_KEY"]
-    model = "grok-2-latest"
+    # base_url = "https://api.x.ai/v1/"
+    # api_key = os.environ["XAI_API_KEY"]
+    # model = "grok-2-latest"
+
+    base_url = "http://147.8.181.248:8000/v1/"
+    api_key = "no-api-key"
+    model = "/home/mnt/wdxu/models/Qwen2.5-Coder-7B-Instruct"
 
     with open(os.environ["SWING_DEMO_DATASET_PATH"], "r") as f:
         dataset = json.load(f)
@@ -314,6 +298,8 @@ if __name__ == "__main__":
     )
     data = SwingbenchInstance(**dataset[0])
     if not SWING_DEBUG_GENERATE_DRYRUN:
+        print('----------- [BEGIN PATCH GENERATOR] -----------',)
+        print('input data: ', data)
         patch_generator = PatchGenerator(workdir=os.environ["SWING_TESTBED_PATH"], 
             src_folder=os.environ["SWING_REPOS_DIR_PATH"], 
             code_editor=code_editor,
@@ -323,7 +309,9 @@ if __name__ == "__main__":
         )
         patch = patch_generator.generate(data)
         print('generated patch: ', patch)
+        print('----------- [END PATCH GENERATOR] -----------',)
 
+        print('----------- [BEGIN PATCH VERIFIER] -----------')
 
         patch_verifier = PatchVerifier(ci_tool_name="cargo", 
             workdir=os.environ["SWING_TESTBED_PATH"], 
@@ -331,7 +319,9 @@ if __name__ == "__main__":
         )
         result = patch_verifier.verify(data, patch)
         print('verify result: ', result)
+        print('----------- [END PATCH VERIFIER] -----------')
 
+        print('----------- [BEGIN TEST GENERATOR] -----------')
         test_generator = TestGenerator(workdir=os.environ["SWING_TESTBED_PATH"], 
             src_folder=os.environ["SWING_REPOS_DIR_PATH"], 
             code_editor=code_editor,
@@ -342,14 +332,17 @@ if __name__ == "__main__":
         )
         testcase = test_generator.generate(data)
         print('generated testcase: ', testcase)
+        print('----------- [END TEST GENERATOR] -----------')
 
+        print('----------- [BEGIN TEST VERIFIER] -----------')
         test_verifier = TestVerifier(ci_tool_name="cargo", 
             workdir=os.environ["SWING_TESTBED_PATH"], 
             src_folder=os.environ["SWING_REPOS_DIR_PATH"], 
         )
         result = test_verifier.verify(data, testcase)
         print('test verify result: ', result)
-        
+        print('----------- [END TEST VERIFIER] -----------')
+
         # TODO(wdxu): merge patch and testcase to get final results.
 
     else:
