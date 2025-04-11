@@ -86,11 +86,11 @@ swing_test_function = {
                         "properties": {
                             "file": {
                                 "type": "string",
-                                "description": "Relative path to the test file where the test case should be added"
+                                "description": "Relative path to the test file where the test case should be added. You should not use same file name with other test cases."
                             },
                             "test_name": {
                                 "type": "string",
-                                "description": "Descriptive name of the test case"
+                                "description": "Descriptive name of the test case."
                             },
                             "test_code": {
                                 "type": "string",

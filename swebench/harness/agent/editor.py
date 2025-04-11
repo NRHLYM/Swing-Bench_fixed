@@ -249,7 +249,7 @@ def generate_git_diff_batch(code_edits, base_path):
                     code_edited = edit["code_edited"]
                 else:
                     # test case
-                    code_to_be_modified = edit["test_name"]
+                    code_to_be_modified = edit["file"]
                     code_edited = edit["test_code"]
                     
                 # First try direct replacement
