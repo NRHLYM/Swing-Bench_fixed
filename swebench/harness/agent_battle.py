@@ -52,30 +52,49 @@ def battle(
         agent_two (AgentProxy): an instance of AgentProxy
         turns (int): the number of turns in the battle
     """
+    patch_agent_score = 0
+    test_agent_score = 0
+
+    def check_result(result):
+        for term in result.keys():
+            if term['returncode'] != 0:
+                return False
+        return True
 
     temperatures = [1 - (i / turns) for i in range(turns)] # fixed temperature: 1 -> 0
     for data in dataset:
-        pass
-        # patch_agent, test_agent = agent_one, agent_two
-        # for i in range(turns):
-        #     patch = patch_agent.generate_patch(data, temperature=temperatures[i])
-        #     if not verifier.verify_patch(data, patch): # patch failed
-        #         patch_agent.score -= 1
-        #         patch_agent, test_agent = test_agent, patch_agent
-        #         continue
+        for i in range(turns):
+            # Stage 1: patch, test individually generation and verification.
+            failed_patch = False
+            failed_test = False
 
-        #     test = test_agent.generate_test(data, temperature=temperatures[i])
-        #     if not verifier.verify_test(data, test): # test failed
-        #         test_agent.score -= 1
-        #         patch_agent, test_agent = test_agent, patch_agent
-        #         continue
+            # Generate patch
+            patch = patch_generator.generate(data)
 
-        #     if verifier.verify_patch(data, patch, test): # patch and test both passed
-        #         patch_agent.score += 1
-        #     else:
-        #         test_agent.score += 1
+            # Verify patch
+            patch_verify_result = patch_verifier.verify(data, patch)
+            if check_result(patch_verify_result):
+                failed_patch = True
+                
+            # Generate test
+            test = test_generator.generate(data)
 
-        #     patch_agent, test_agent = test_agent, patch_agent
+            # Verify test
+            test_verify_result = test_verifier.verify(data, test)
+            if check_result(test_verify_result):
+                failed_test = True
+
+            # Update score
+            if failed_patch:
+                patch_agent_score -= 1
+            if failed_test:
+                test_agent_score -= 1
+
+            if failed_patch or failed_test:
+                continue
+
+            # Stage 2: patch and test generation and verification.
+
     return None
 
 def main(
@@ -126,18 +145,24 @@ def main(
         src_folder=src_folder, 
         code_editor=code_editor,
         retriever=retriever,
-        retrieve_file_num=20,
+        retrieve_file_num=5,
         agent_retry_times=3
     )
     test_generator = TestGenerator(workdir=workdir, 
         src_folder=src_folder, 
         code_editor=code_editor,
         retriever=retriever,
-        retrieve_file_num=20,
+        retrieve_file_num=5,
         agent_retry_times=3
     )
 
     result = battle(dataset, patch_generator, test_generator, patch_verifier, test_verifier)
+    
+    # Switching roles
+    patch_generator, test_generator = test_generator, patch_generator
+
+    result = battle(dataset, patch_generator, test_generator, patch_verifier, test_verifier)
+
 
 if __name__ == "__main__":
     parser = ArgumentParser(

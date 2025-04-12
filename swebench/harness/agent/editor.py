@@ -82,15 +82,15 @@ class RawDataCodeEditor(CodeEditorBase):
                 break
         return function_call_args
 
-    def edit_code(self, issue: str, original_code: str, file_path: str, role: str, retry: int = 1, original_patch: str = None):
+    def edit_code(self, issue: str, original_code: str, file_path: str, role: str, retry: int = 1, generated_patch: str = None):
         self.function = copy.deepcopy(swing_patch_function if role == "patch" else swing_test_function)
         self.function["input"] = {
                 "issue": issue,
                 "original_code": original_code,
                 "file_path": file_path,
         }
-        if original_patch != None:
-            self.function["input"]["original_patch"] = original_patch
+        if generated_patch != None:
+            self.function["input"]["generated_patch"] = generated_patch
 
         origin_input = json.dumps(self.function)
         function_call_args = self._call_api(origin_input, role, retry)
@@ -107,15 +107,15 @@ class RawDataCodeEditor(CodeEditorBase):
                 "test_cases": function_call_args["test_cases"],
             }
 
-    def edit_code_batch(self, issue: str, original_code: list[dict], file_path_list: list[str], role: str, retry: int = 1, original_patch: str = None):
+    def edit_code_batch(self, issue: str, original_code: list[dict], file_path_list: list[str], role: str, retry: int = 1, generated_patch: str = None):
         self.function = copy.deepcopy(swing_patch_function if role == "patch" else swing_test_function)
         self.function["input"] = {
                 "issue": issue,
                 "original_code": original_code,
                 "file_path": file_path_list,
         }
-        if original_patch != None:
-            self.function["input"]["original_patch"] = original_patch
+        if generated_patch != None:
+            self.function["input"]["generated_patch"] = generated_patch
 
         origin_input = json.dumps(self.function)
         function_call_args = self._call_api(origin_input, role, retry)
@@ -229,7 +229,7 @@ def apply_indentation(code, indentation):
     indented_lines = [indentation + line if line.strip() else line for line in lines]
     return '\n'.join(indented_lines)
 
-def process_file_edits(file_path, file_edits, original_content, is_new_file):
+def process_file_edits(file_path, file_edits, original_content):
     modified_content = original_content
 
     for edit in file_edits:
@@ -239,9 +239,6 @@ def process_file_edits(file_path, file_edits, original_content, is_new_file):
         else:
             code_to_be_modified = ""
             code_edited = edit["test_code"]
-
-        if is_new_file:
-            return code_edited
         
         if code_to_be_modified and code_to_be_modified in modified_content:
             print(f"Replacing code in {file_path}")
@@ -307,8 +304,7 @@ def generate_git_diff_batch(code_edits, base_path):
                 with open(original_file_path_in_base, 'r') as f:
                     original_content = f.read()
             
-            is_new_file = not file_exists
-            modified_content = process_file_edits(file_path, file_edits, original_content, is_new_file)
+            modified_content = process_file_edits(file_path, file_edits, original_content)
             
             with open(temp_file_path, "w") as f:
                 f.write(original_content)

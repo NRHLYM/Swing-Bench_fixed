@@ -93,7 +93,7 @@ class TestGenerator(Generator):
                  retriever: Retriever = None,
                  retrieve_file_num: int = 20,
                  agent_retry_times: int = 3,
-                 original_patch: str = None,
+                 generated_patch: str = None,
                  ):
         self.workdir = workdir
         self.src_folder = src_folder
@@ -101,7 +101,7 @@ class TestGenerator(Generator):
         self.retriever = retriever
         self.retrieve_file_num = retrieve_file_num
         self.agent_retry_times = agent_retry_times
-        self.original_patch = original_patch
+        self.generated_patch = generated_patch
 
     def generate(self, data: SwingbenchInstance):
         print('test generator: data: ', data)
@@ -115,7 +115,7 @@ class TestGenerator(Generator):
                                          file_path_list,
                                          role="test",
                                          retry=self.agent_retry_times,
-                                         original_patch=self.original_patch)
+                                         generated_patch=self.generated_patch)
         print('test generator: response: ', response)
         base_path = f"{self.workdir}/{data.instance_id}_{str(uuid4())}"
         print('test generator: creating base path: ', base_path)
@@ -263,7 +263,7 @@ class TestVerifier(Verifier):
         return {
             "tool": self.ci_tool_name,
             "result": result,
-            "test_cases": data.patch
+            "test_cases": testcase
         }
 
 
@@ -328,7 +328,7 @@ if __name__ == "__main__":
             retriever=retriever,
             retrieve_file_num=5,
             agent_retry_times=3,
-            original_patch=patch
+            generated_patch=patch
         )
         testcase = test_generator.generate(data)
         print('generated testcase: ', testcase)
@@ -344,6 +344,8 @@ if __name__ == "__main__":
         print('----------- [END TEST VERIFIER] -----------')
 
         # TODO(wdxu): merge patch and testcase to get final results.
+        print('patch generated instance: ', data)
+        print('test generated instance: ', testcase)
 
     else:
         import swebench.harness.agent.verifier_test_patch as test_patch
