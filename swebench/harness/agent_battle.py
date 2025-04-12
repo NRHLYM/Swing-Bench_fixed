@@ -3,12 +3,7 @@ import sys
 import os
 import platform
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
-from typing import Optional, List, Dict, Any
-from pathlib import Path
-from swebench.harness.agent import (
-    AgentProxy,
-    Verifier,
-)
+from typing import List
 from swebench.harness.constants.swing_constants import SwingbenchInstance
 from swebench.harness.swing_utils import (
     load_swingbench_dataset,
@@ -62,7 +57,7 @@ def battle_one_turn(
 
     def check_result(result):
         for term in result.keys():
-            if term['returncode'] != 0:
+            if 'returncode' in term and term['returncode'] != 0:
                 return False
         return True
 
@@ -75,7 +70,7 @@ def battle_one_turn(
 
             # Verify patch
             patch_verify_result = patch_verifier.verify(data, patch)
-            if check_result(patch_verify_result):
+            if check_result(patch_verify_result['result']):
                 patch_agent_score -= 1
                 continue
                 
@@ -84,14 +79,14 @@ def battle_one_turn(
 
             # Verify test
             test_verify_result = test_verifier.verify(data, test)
-            if check_result(test_verify_result):
+            if check_result(test_verify_result['result']):
                 test_agent_score -= 1
                 continue
 
             # Stage 2: patch and test generation and verification.
             patch_with_test = merge_diffs(patch, test)
             patch_with_test_verify_result = test_verifier.verify(data, patch_with_test)
-            if check_result(patch_with_test_verify_result):
+            if check_result(patch_with_test_verify_result['result']):
                 patch_agent_score += 1
             else:
                 test_agent_score += 1
@@ -171,8 +166,6 @@ def main(
     """
     Runs evaluation to battle two agents on a dataset.
     """
-    agent = agent.split(",")
-    logger.info(f"Processing {dataset_name} for agent {agent[0]} and agent {agent[1]}")
 
     if platform.system() == "Linux":
         logger.info(f"Setting open file limit to {open_file_limit}")
@@ -224,6 +217,11 @@ if __name__ == "__main__":
         help="Name of dataset or path to JSON file.",
     )
 
+    # default models
+    base_url = "http://147.8.181.248:8000/v1/"
+    api_key = "no-api-key"
+    model = "/home/mnt/wdxu/models/Qwen2.5-Coder-7B-Instruct"
+
     # Local execution args
     parser.add_argument(
         "--workdir", type=str, default=os.environ["SWING_TESTBED_PATH"], help="Work directory"
@@ -235,22 +233,22 @@ if __name__ == "__main__":
         "--open_file_limit", type=int, default=4096, help="Open file limit"
     )
     parser.add_argument(
-        "--api_key_lhs", type=str, default=os.environ["SWING_CODE_EDITOR_API_KEY"], help="API key for lhs"
+        "--api_key_lhs", type=str, default=api_key, help="API key for lhs"
     )
     parser.add_argument(
-        "--base_url_lhs", type=str, default=os.environ["SWING_CODE_EDITOR_BASE_URL"], help="Base URL for lhs"
+        "--base_url_lhs", type=str, default=base_url, help="Base URL for lhs"
     )
     parser.add_argument(
-        "--model_lhs", type=str, default=os.environ["SWING_CODE_EDITOR_MODEL"], help="Model for lhs"
+        "--model_lhs", type=str, default=model, help="Model for lhs"
     )
     parser.add_argument(
-        "--api_key_rhs", type=str, default=os.environ["SWING_CODE_EDITOR_API_KEY"], help="API key for rhs"
+        "--api_key_rhs", type=str, default=api_key, help="API key for rhs"
     )
     parser.add_argument(
-        "--base_url_rhs", type=str, default=os.environ["SWING_CODE_EDITOR_BASE_URL"], help="Base URL for rhs"
+        "--base_url_rhs", type=str, default=base_url, help="Base URL for rhs"
     )
     parser.add_argument(
-        "--model_rhs", type=str, default=os.environ["SWING_CODE_EDITOR_MODEL"], help="Model for rhs"
+        "--model_rhs", type=str, default=model, help="Model for rhs"
     )
     parser.add_argument(
         "--retriever_index_dir", type=str, default=os.environ["SWING_INDEXES_PATH"], help="Retriever index directory"
