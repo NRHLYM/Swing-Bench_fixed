@@ -196,7 +196,72 @@ def lint_code(code: str, prev_code: str = ""):
             
         return True, set(), set()
 
-# TODO(wdxu): rewrite this function.
+def normalize_code(code):
+    lines = code.split('\n')
+    normalized_lines = [line.lstrip() for line in lines]
+    return '\n'.join(normalized_lines)
+
+def find_code_match(content, code_to_find):
+    normalized_snippet = normalize_code(code_to_find)
+    content_lines = content.split('\n')
+    
+    for i in range(len(content_lines)):
+        if normalized_snippet.split('\n')[0] in content_lines[i].lstrip():
+            potential_match = []
+            for j in range(i, min(i + len(code_to_find.split('\n')), len(content_lines))):
+                potential_match.append(content_lines[j])
+            
+            potential_match_str = '\n'.join(potential_match)
+            if normalize_code(potential_match_str) == normalized_snippet:
+                indentation = ''
+                for char in content_lines[i]:
+                    if char in (' ', '\t'):
+                        indentation += char
+                    else:
+                        break
+                
+                return potential_match_str, indentation
+    
+    return None, None
+
+def apply_indentation(code, indentation):
+    lines = code.split('\n')
+    indented_lines = [indentation + line if line.strip() else line for line in lines]
+    return '\n'.join(indented_lines)
+
+def process_file_edits(file_path, file_edits, original_content, is_new_file):
+    modified_content = original_content
+
+    for edit in file_edits:
+        if "code_to_be_modified" in edit:
+            code_to_be_modified = edit["code_to_be_modified"]
+            code_edited = edit["code_edited"]
+        else:
+            code_to_be_modified = ""
+            code_edited = edit["test_code"]
+
+        if is_new_file:
+            return code_edited
+        
+        if code_to_be_modified and code_to_be_modified in modified_content:
+            print(f"Replacing code in {file_path}")
+            modified_content = modified_content.replace(code_to_be_modified, code_edited)
+            continue
+        
+        if code_to_be_modified:
+            match_text, indentation = find_code_match(modified_content, code_to_be_modified)
+            if match_text:
+                indented_code = apply_indentation(code_edited, indentation)
+                modified_content = modified_content.replace(match_text, indented_code)
+                continue
+        
+        print(f"Could not find the code segment to be modified in {file_path}. Appending the new code.")
+        if modified_content and not modified_content.endswith('\n'):
+            modified_content += '\n'
+        modified_content += code_edited
+    
+    return modified_content
+
 def generate_git_diff_batch(code_edits, base_path):
     """
     Creates git diffs by applying all edits to original files and generating diffs.
@@ -209,7 +274,6 @@ def generate_git_diff_batch(code_edits, base_path):
     Returns:
         Dictionary with file paths as keys and their corresponding git diff output as values
     """
-    diffs = {}
     edits_by_file = {}
     for edit in code_edits:
         file_path = edit["file"]
@@ -217,15 +281,14 @@ def generate_git_diff_batch(code_edits, base_path):
             edits_by_file[file_path] = []
         edits_by_file[file_path].append(edit)
     
+    diffs = {}
+    
     with tempfile.TemporaryDirectory() as tmp_dir:
         subprocess.run("git init -b main -q", shell=True, cwd=tmp_dir)
         subprocess.run("git config user.name 'test'", shell=True, cwd=tmp_dir)
         subprocess.run("git config user.email 'test@example.com'", shell=True, cwd=tmp_dir)
 
         for file_path, file_edits in edits_by_file.items():
-            print('file_path: ', file_path)
-            print('file_edits: ', file_edits)
-            
             file_dir = os.path.dirname(file_path)
             if file_dir:
                 os.makedirs(os.path.join(tmp_dir, file_dir), exist_ok=True)
@@ -244,67 +307,10 @@ def generate_git_diff_batch(code_edits, base_path):
                 with open(original_file_path_in_base, 'r') as f:
                     original_content = f.read()
             
-            modified_content = original_content
             is_new_file = not file_exists
-            
-            for edit in file_edits:
-                if "code_to_be_modified" in edit:
-                    code_to_be_modified = edit["code_to_be_modified"]
-                    code_edited = edit["code_edited"]
-                else:
-                    code_to_be_modified = ""
-                    code_edited = edit["test_code"]
-                
-                if is_new_file:
-                    modified_content = code_edited
-                    break
-                
-                if code_to_be_modified in modified_content:
-                    modified_content = modified_content.replace(code_to_be_modified, code_edited)
-                    continue
-                
-                # If direct replacement fails, try to match the code ignoring indentation
-                found = False
-                
-                def normalize_code(code):
-                    lines = code.split('\n')
-                    normalized_lines = [line.lstrip() for line in lines]
-                    return '\n'.join(normalized_lines)
-                
-                normalized_snippet = normalize_code(code_to_be_modified)
-                content_lines = modified_content.split('\n')
-                for i in range(len(content_lines)):
-                    if normalized_snippet.split('\n')[0] in content_lines[i].lstrip():
-                        potential_match = []
-                        for j in range(i, min(i + len(code_to_be_modified.split('\n')), len(content_lines))):
-                            potential_match.append(content_lines[j])
-                        
-                        potential_match_str = '\n'.join(potential_match)
-                        if normalize_code(potential_match_str) == normalized_snippet:
-                            # Get the indentation of the found snippet
-                            indentation = ''
-                            for char in content_lines[i]:
-                                if char in (' ', '\t'):
-                                    indentation += char
-                                else:
-                                    break
-                            
-                            edited_lines = code_edited.split('\n')
-                            indented_edited_lines = [indentation + line if line.strip() else line for line in edited_lines]
-                            indented_edited_code = '\n'.join(indented_edited_lines)
-                            
-                            modified_content = modified_content.replace(potential_match_str, indented_edited_code)
-                            found = True
-                            break
-                
-                if not found:
-                    print(f"Could not find the code segment to be modified in {file_path}. Creating a new file with the edited code.")
-                    modified_content = code_edited
-                    is_new_file = True
-                    break
+            modified_content = process_file_edits(file_path, file_edits, original_content, is_new_file)
             
             with open(temp_file_path, "w") as f:
-                print(f"Writing original content to {temp_file_path}")
                 f.write(original_content)
             
             subprocess.run(
@@ -314,7 +320,6 @@ def generate_git_diff_batch(code_edits, base_path):
             )
             
             with open(temp_file_path, "w") as f:
-                print(f"Writing modified content to {temp_file_path}")
                 f.write(modified_content)
             
             result = subprocess.run(
@@ -376,7 +381,144 @@ if __name__ == "__main__":
         ]
     }
 
-    diffs = generate_git_diff_batch(resp["code_edits"], os.environ["SWING_REPOS_DIR_PATH"] + "/rustzx__rustzx/")
+    test_resp = {'reasoning_trace': 'The code in question is responsible for loading a TAP file into a vector. The current implementation reads the file into a buffer of size 1024 bytes and extends the vector with the contents of the buffer until the end of the file is reached. The proposed changes aim to eliminate the loading of the whole file into a vector by using a loop to read the file in chunks until the end is reached. This change is necessary to allow the code to be ported to more resource-restricted hosts.', 'test_cases': [{'file': 'tests/tap_loader_test.rs', 'test_name': 'Test loading a small TAP file', 'test_code': 'use rustzx_core::zx::tape::tap::Tap;\
+    use std::fs::File;\
+    use std::io::Read;\
+    \
+    #[test]\
+    fn test_load_small_tap_file() {\
+        let mut file = File::open("test_data/small_tap.tap").unwrap();\
+        let mut tap = Tap::default();\
+        let mut buffer = [0u8; 1024];\
+        let mut read_bytes = file.read(&mut buffer).unwrap();\
+        while read_bytes != 0 {\
+            tap.data.extend_from_slice(&buffer[0..read_bytes]);\
+            read_bytes = file.read(&mut buffer).unwrap();\
+        }\
+        assert_eq!(tap.data.len(), 100); // Assuming the small TAP file has 100 bytes\
+        }', 'test_description': 'This test case verifies that the TAP file loader can correctly load a small TAP file into the vector.'}, {'file': 'tests/tap_loader_test.rs', 'test_name': 'Test loading a large TAP file', 'test_code': 'use rustzx_core::zx::tape::tap::Tap;\
+    use std::fs::File;\
+    use std::io::Read;\
+    \
+    #[test]\
+    fn test_load_large_tap_file() {\
+        let mut file = File::open("test_data/large_tap.tap").unwrap();\
+        let mut tap = Tap::default();\
+        let mut buffer = [0u8; 1024];\
+        let mut read_bytes = file.read(&mut buffer).unwrap();\
+        while read_bytes != 0 {\
+            tap.data.extend_from_slice(&buffer[0..read_bytes]);\
+            read_bytes = file.read(&mut buffer).unwrap();\
+        }\
+        assert_eq!(tap.data.len(), 100000); // Assuming the large TAP file has 100000 bytes\
+        }', 'test_description': 'This test case verifies that the TAP file loader can correctly load a large TAP file into the vector.'}, {'file': 'tests/tap_loader_test.rs', 'test_name': 'Test loading an empty TAP file', 'test_code': 'use rustzx_core::zx::tape::tap::Tap;\
+    use std::fs::File;\
+    use std::io::Read;\
+    \
+    #[test]\
+    fn test_load_empty_tap_file() {\
+        let mut file = File::open("test_data/empty_tap.tap").unwrap();\
+        let mut tap = Tap::default();\
+        let mut buffer = [0u8; 1024];\
+        let mut read_bytes = file.read(&mut buffer).unwrap();\
+        while read_bytes != 0 {\
+            tap.data.extend_from_slice(&buffer[0..read_bytes]);\
+            read_bytes = file.read(&mut buffer).unwrap();\
+        }\
+        assert_eq!(tap.data.len(), 0); // Assuming the empty TAP file has 0 bytes\
+        }', 'test_description': 'This test case verifies that the TAP file loader can correctly handle an empty TAP file.'}, {'file': 'tests/tap_loader_test.rs', 'test_name': 'Test loading a TAP file with a single block', 'test_code': 'use rustzx_core::zx::tape::tap::Tap;\
+    use std::fs::File;\
+    use std::io::Read;\
+    \
+    #[test]\
+    fn test_load_tap_file_with_single_block() {\
+        let mut file = File::open("test_data/single_block_tap.tap").unwrap();\
+        let mut tap = Tap::default();\
+        let mut buffer = [0u8; 1024];\
+        let mut read_bytes = file.read(&mut buffer).unwrap();\
+        while read_bytes != 0 {\
+            tap.data.extend_from_slice(&buffer[0..read_bytes]);\
+            read_bytes = file.read(&mut buffer).unwrap();\
+        }\
+        assert_eq!(tap.data.len(), 10); // Assuming the single block TAP file has 10 bytes\
+        }', 'test_description': 'This test case verifies that the TAP file loader can correctly load a TAP file with a single block.'}, {'file': 'tests/tap_loader_test.rs', 'test_name': 'Test loading a TAP file with multiple blocks', 'test_code': 'use rustzx_core::zx::tape::tap::Tap;\
+    use std::fs::File;\
+    use std::io::Read;\
+    \
+    #[test]\
+    fn test_load_tap_file_with_multiple_blocks() {\
+        let mut file = File::open("test_data/multiple_blocks_tap.tap").unwrap();\
+        let mut tap = Tap::default();\
+        let mut buffer = [0u8; 1024];\
+        let mut read_bytes = file.read(&mut buffer).unwrap();\
+        while read_bytes != 0 {\
+            tap.data.extend_from_slice(&buffer[0..read_bytes]);\
+            read_bytes = file.read(&mut buffer).unwrap();\
+        }\
+        assert_eq!(tap.data.len(), 100); // Assuming the multiple blocks TAP file has 100 bytes\
+        }', 'test_description': 'This test case verifies that the TAP file loader can correctly load a TAP file with multiple blocks.'}, {'file': 'tests/tap_loader_test.rs', 'test_name': 'Test loading a TAP file with a single block and a single byte', 'test_code': 'use rustzx_core::zx::tape::tap::Tap;\
+    use std::fs::File;\
+    use std::io::Read;\
+    \
+    #[test]\
+    fn test_load_tap_file_with_single_block_and_single_byte() {\
+        let mut file = File::open("test_data/single_block_single_byte_tap.tap").unwrap();\
+        let mut tap = Tap::default();\
+        let mut buffer = [0u8; 1024];\
+        let mut read_bytes = file.read(&mut buffer).unwrap();\
+        while read_bytes != 0 {\
+            tap.data.extend_from_slice(&buffer[0..read_bytes]);\
+            read_bytes = file.read(&mut buffer).unwrap();\
+        }\
+        assert_eq!(tap.data.len(), 1); // Assuming the single block single byte TAP file has 1 byte\
+        }', 'test_description': 'This test case verifies that the TAP file loader can correctly load a TAP file with a single block and a single byte.'}, {'file': 'tests/tap_loader_test.rs', 'test_name': 'Test loading a TAP file with a single block and multiple bytes', 'test_code': 'use rustzx_core::zx::tape::tap::Tap;\
+    use std::fs::File;\
+    use std::io::Read;\
+    \
+    #[test]\
+    fn test_load_tap_file_with_single_block_and_multiple_bytes() {\
+        let mut file = File::open("test_data/single_block_multiple_bytes_tap.tap").unwrap();\
+        let mut tap = Tap::default();\
+        let mut buffer = [0u8; 1024];\
+        let mut read_bytes = file.read(&mut buffer).unwrap();\
+        while read_bytes != 0 {\
+            tap.data.extend_from_slice(&buffer[0..read_bytes]);\
+            read_bytes = file.read(&mut buffer).unwrap();\
+        }\
+        assert_eq!(tap.data.len(), 10); // Assuming the single block multiple bytes TAP file has 10 bytes\
+        }', 'test_description': 'This test case verifies that the TAP file loader can correctly load a TAP file with a single block and multiple bytes.'}, {'file': 'tests/tap_loader_test.rs', 'test_name': 'Test loading a TAP file with a single block and a single byte and a single block with multiple bytes', 'test_code': 'use rustzx_core::zx::tape::tap::Tap;\
+    use std::fs::File;\
+    use std::io::Read;\
+    \
+    #[test]\
+    fn test_load_tap_file_with_single_block_and_single_byte_and_single_block_with_multiple_bytes() {\
+        let mut file = File::open("test_data/single_block_single_byte_single_block_multiple_bytes_tap.tap").unwrap();\
+        let mut tap = Tap::default();\
+        let mut buffer = [0u8; 1024];\
+        let mut read_bytes = file.read(&mut buffer).unwrap();\
+        while read_bytes != 0 {\
+            tap.data.extend_from_slice(&buffer[0..read_bytes]);\
+            read_bytes = file.read(&mut buffer).unwrap();\
+        }\
+        assert_eq!(tap.data.len(), 11); // Assuming the single block single byte single block multiple bytes TAP file has 11 bytes\
+        }', 'test_description': 'This test case verifies that the TAP file loader can correctly load a TAP file with a single block and a single byte and a single block with multiple bytes.'}, {'file': 'tests/tap_loader_test.rs', 'test_name': 'Test loading a TAP file with a single block and a single byte and a single block with multiple bytes and a single block with a single byte', 'test_code': 'use rustzx_core::zx::tape::tap::Tap;\
+    use std::fs::File;\
+    use std::io::Read;\
+    \
+    #[test]\
+    fn test_load_tap_file_with_single_block_and_single_byte_and_single_block_with_multiple_bytes_and_single_block_with_single_byte() {\
+        let mut file = File::open("test_data/single_block_single_byte_single_block_multiple_bytes_single_block_single_byte_tap.tap").unwrap();\
+        let mut tap = Tap::default();\
+        let mut buffer = [0u8; 1024];\
+        let mut read_bytes = file.read(&mut buffer).unwrap();\
+        while read_bytes != 0 {\
+            tap.data.extend_from_slice(&buffer[0..read_bytes]);\
+            read_bytes = file.read(&mut buffer).unwrap();\
+        }\
+        assert_eq!(tap.data.len(), 12); // Assuming the single block single byte single block multiple bytes single block single byte TAP file has 12 bytes\
+    }', 'test_description': 'This test case verifies that the TAP file loader can correctly load a TAP file with a single block and a single byte and a single block with multiple bytes and a single block with a single byte.'}]}
+
+    diffs = generate_git_diff_batch(test_resp["test_cases"], os.environ["SWING_REPOS_DIR_PATH"] + "/rustzx__rustzx/")
     for file_path, diff in diffs.items():
         print(f"Diff for {file_path}:")
         print(diff)
