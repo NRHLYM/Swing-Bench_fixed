@@ -15,7 +15,7 @@ from swebench.harness.agent.editor import generate_git_diff_batch
 from swebench.harness.agent.retriever import Retriever
 from swebench.harness.agent.editor import CodeEditorBase
 from swebench.harness.utils import get_available_port_pool
-
+from swebench.harness.swing_utils import merge_two_diffs
 class Verifier:
     @abstractmethod
     def __init__(self, ci_tool: CIToolBase):
@@ -343,9 +343,12 @@ if __name__ == "__main__":
         print('test verify result: ', result)
         print('----------- [END TEST VERIFIER] -----------')
 
-        # TODO(wdxu): merge patch and testcase to get final results.
         print('patch generated instance: ', data)
         print('test generated instance: ', testcase)
+
+        patch_with_test = merge_two_diffs(patch, testcase)
+        print('patch with test: ', patch_with_test)
+
 
     else:
         import swebench.harness.agent.verifier_test_patch as test_patch

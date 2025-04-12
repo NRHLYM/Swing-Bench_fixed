@@ -4,6 +4,9 @@ import requests
 import time
 import traceback
 import logging
+import tempfile
+import subprocess
+import os
 
 from argparse import ArgumentTypeError
 from concurrent.futures import ThreadPoolExecutor, as_completed, wait, FIRST_COMPLETED
@@ -331,3 +334,79 @@ def get_modified_files(patch: str) -> list[str]:
             source_files.append(file.source_file)
     source_files = [x[2:] for x in source_files if x.startswith("a/")]
     return source_files
+
+
+def merge_two_diffs(diff1: str, diff2: str) -> str:
+    if not diff1 and not diff2:
+        return ""
+    if not diff1:
+        return diff2
+    if not diff2:
+        return diff1
+    
+    file_path1 = None
+    file_path2 = None
+    
+    match1 = re.search(r'diff --git a/(.*?) b/', diff1)
+    if match1:
+        file_path1 = match1.group(1)
+    
+    match2 = re.search(r'diff --git a/(.*?) b/', diff2)
+    if match2:
+        file_path2 = match2.group(1)
+    
+    if file_path1 and file_path2 and file_path1 != file_path2:
+        return diff1 + "\n" + diff2
+    
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        subprocess.run("git init -b main -q", shell=True, cwd=tmp_dir)
+        subprocess.run("git config user.name 'test'", shell=True, cwd=tmp_dir)
+        subprocess.run("git config user.email 'test@example.com'", shell=True, cwd=tmp_dir)
+        
+        subprocess.run("git commit --allow-empty -m 'initial commit'", shell=True, cwd=tmp_dir)
+        
+        file_path = file_path1 or file_path2 or "unknown_file"
+        
+        file_dir = os.path.dirname(file_path)
+        if file_dir:
+            os.makedirs(os.path.join(tmp_dir, file_dir), exist_ok=True)
+        
+        file_path_in_tmp = os.path.join(tmp_dir, file_path)
+        with open(file_path_in_tmp, "w") as f:
+            f.write("")
+        
+        subprocess.run(f"git add {file_path}", shell=True, cwd=tmp_dir)
+        subprocess.run("git commit -m 'add empty file'", shell=True, cwd=tmp_dir)
+        
+        with open(os.path.join(tmp_dir, "patch1.diff"), "w") as f:
+            f.write(diff1)
+        
+        subprocess.run("git apply patch1.diff", shell=True, cwd=tmp_dir)
+        subprocess.run(f"git add {file_path}", shell=True, cwd=tmp_dir)
+        subprocess.run("git commit -m 'apply first diff'", shell=True, cwd=tmp_dir)
+        
+        with open(os.path.join(tmp_dir, "patch2.diff"), "w") as f:
+            f.write(diff2)
+        
+        subprocess.run("git apply patch2.diff", shell=True, cwd=tmp_dir)
+        subprocess.run(f"git add {file_path}", shell=True, cwd=tmp_dir)
+        subprocess.run("git commit -m 'apply second diff'", shell=True, cwd=tmp_dir)
+        
+        result = subprocess.run(
+            "git diff HEAD~2", 
+            shell=True, 
+            capture_output=True,
+            cwd=tmp_dir
+        )
+        merged_diff = result.stdout.decode("utf-8")
+        
+        return merged_diff
+
+
+if __name__ == "__main__":
+    diff_1 = 'diff --git a/tests/tap_test.rs b/tests/tap_test.rs\nindex e69de29..a43a653 100644\n--- a/tests/tap_test.rs\n+++ b/tests/tap_test.rs\n@@ -0,0 +1,104 @@\n+use rustzx_core::zx::tape::tap::Tap;\n+use rustzx_core::host::LoadableAsset;\n+use std::io::Cursor;\n+\n+#[test]\n+fn test_empty_file() {\n+    let asset = Cursor::new(Vec::new());\n+    let tap = Tap::from_asset(asset).unwrap();\n+    assert!(tap.data.is_empty());\n+}\n+use rustzx_core::zx::tape::tap::Tap;\n+use rustzx_core::host::LoadableAsset;\n+use std::io::Cursor;\n+\n+#[test]\n+fn test_single_chunk_file() {\n+    let data = vec![0x01, 0x02, 0x03];\n+    let asset = Cursor::new(data.clone());\n+    let tap = Tap::from_asset(asset).unwrap();\n+    assert_eq!(tap.data, data);\n+}\n+use rustzx_core::zx::tape::tap::Tap;\n+use rustzx_core::host::LoadableAsset;\n+use std::io::Cursor;\n+\n+#[test]\n+fn test_multiple_chunks_file() {\n+    let data = vec![0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];\n+    let asset = Cursor::new(data.clone());\n+    let tap = Tap::from_asset(asset).unwrap();\n+    assert_eq!(tap.data, data);\n+}\n+use rustzx_core::zx::tape::tap::Tap;\n+use rustzx_core::host::LoadableAsset;\n+use std::io::{Cursor, Error, ErrorKind};\n+\n+struct ErrorAsset;\n+impl LoadableAsset for ErrorAsset {\n+    fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {\n+        Err(Error::new(ErrorKind::Other, "Read error"))\n+    }\n+}\n+\n+#[test]\n+fn test_read_error() {\n+    let asset = ErrorAsset;\n+    let result = Tap::from_asset(asset);\n+    assert!(result.is_err());\n+}\n+use rustzx_core::zx::tape::tap::Tap;\n+use rustzx_core::host::LoadableAsset;\n+use std::io::Cursor;\n+\n+#[test]\n+fn test_large_file() {\n+    let data = vec![0x01; 1024 * 1024];\n+    let asset = Cursor::new(data.clone());\n+    let tap = Tap::from_asset(asset).unwrap();\n+    assert_eq!(tap.data, data);\n+}\n+use rustzx_core::zx::tape::tap::Tap;\n+use rustzx_core::host::LoadableAsset;\n+use std::io::Cursor;\n+\n+#[test]\n+fn test_file_with_zero_length_chunk() {\n+    let data = vec![0x01, 0x00, 0x02];\n+    let asset = Cursor::new(data.clone());\n+    let tap = Tap::from_asset(asset).unwrap();\n+    assert_eq!(tap.data, vec![0x01, 0x02]);\n+}\n+use rustzx_core::zx::tape::tap::Tap;\n+use rustzx_core::host::LoadableAsset;\n+use std::io::Cursor;\n+\n+#[test]\n+fn test_file_with_multiple_zero_length_chunks() {\n+    let data = vec![0x01, 0x00, 0x00, 0x02];\n+    let asset = Cursor::new(data.clone());\n+    let tap = Tap::from_asset(asset).unwrap();\n+    assert_eq!(tap.data, vec![0x01, 0x02]);\n+}\n+use rustzx_core::zx::tape::tap::Tap;\n+use rustzx_core::host::LoadableAsset;\n+use std::io::Cursor;\n+\n+#[test]\n+fn test_file_with_large_zero_length_chunk() {\n+    let data = vec![0x01, 0x00; 1024 * 1024, 0x02];\n+    let asset = Cursor::new(data.clone());\n+    let tap = Tap::from_asset(asset).unwrap();\n+    assert_eq!(tap.data, vec![0x01, 0x02]);\n+}\n+use rustzx_core::zx::tape::tap::Tap;\n+use rustzx_core::host::LoadableAsset;\n+use std::io::Cursor;\n+\n+#[test]\n+fn test_file_with_large_zero_length_chunks() {\n+    let data = vec![0x01, 0x00; 1024 * 1024, 0x00, 0x00, 0x02];\n+    let asset = Cursor::new(data.clone());\n+    let tap = Tap::from_asset(asset).unwrap();\n+    assert_eq!(tap.data, vec![0x01, 0x02]);\n+}\n\\ No newline at end of file\n'
+    
+    diff_2 = 'diff --git a/rustzx-core/src/zx/tape/tap.rs b/rustzx-core/src/zx/tape/tap.rs\nindex feaa5e7..d03d2f2 100644\n--- a/rustzx-core/src/zx/tape/tap.rs\n+++ b/rustzx-core/src/zx/tape/tap.rs\n@@ -84,11 +84,13 @@ impl Tap {\n \n         let mut tap = Self::default();\n \n-        let mut buffer = [0u8; 1024];\n-        let mut read_bytes = asset.read(&mut buffer)?;\n-        while read_bytes != 0 {\n-            tap.data.extend_from_slice(&buffer[0..read_bytes]);\n+        let mut read_bytes;\n+        loop {\n             read_bytes = asset.read(&mut buffer)?;\n+            if read_bytes == 0 {\n+                break;\n+            }\n+            tap.data.extend_from_slice(&buffer[0..read_bytes]);\n         }\n \n         tap.block_info.clear();\n'
+    
+    print(merge_two_diffs(diff_1, diff_2))
+    

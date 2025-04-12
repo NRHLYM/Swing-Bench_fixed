@@ -19,6 +19,8 @@ from swebench.harness.agent.verifier import PatchVerifier, TestVerifier, PatchGe
 from swebench.harness.agent.code_editor import RawDataCodeEditor
 from swebench.harness.agent.retriever import BM25DiskRetriever
 
+from swebench.harness.swing_utils import merge_two_diffs
+
 
 if platform.system() == "Linux":
     import resource
@@ -94,8 +96,12 @@ def battle(
                 continue
 
             # Stage 2: patch and test generation and verification.
+            patch_with_test = merge_two_diffs(patch, test)
+            patch_with_test_verify_result = test_verifier.verify(data, patch_with_test)
+            if check_result(patch_with_test_verify_result):
+                patch_agent_score += 1
+                test_agent_score += 1
 
-    return None
 
 def main(
     agent: str,
