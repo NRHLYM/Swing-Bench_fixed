@@ -15,7 +15,8 @@ from swebench.harness.agent.editor import generate_git_diff_batch
 from swebench.harness.agent.retriever import Retriever
 from swebench.harness.agent.editor import CodeEditorBase
 from swebench.harness.utils import get_available_port_pool
-from swebench.harness.swing_utils import merge_two_diffs
+from swebench.harness.swing_utils import merge_diffs
+
 class Verifier:
     @abstractmethod
     def __init__(self, ci_tool: CIToolBase):
@@ -93,7 +94,6 @@ class TestGenerator(Generator):
                  retriever: Retriever = None,
                  retrieve_file_num: int = 20,
                  agent_retry_times: int = 3,
-                 generated_patch: str = None,
                  ):
         self.workdir = workdir
         self.src_folder = src_folder
@@ -101,9 +101,11 @@ class TestGenerator(Generator):
         self.retriever = retriever
         self.retrieve_file_num = retrieve_file_num
         self.agent_retry_times = agent_retry_times
-        self.generated_patch = generated_patch
+    
+    def model_name(self):
+        return self.code_editor.model
 
-    def generate(self, data: SwingbenchInstance):
+    def generate(self, data: SwingbenchInstance, generated_patch: str = None):
         print('test generator: data: ', data)
         # TODO(wdxu): remove this hack.
         data.hints_text += "test, testcase, unittest."
@@ -115,7 +117,7 @@ class TestGenerator(Generator):
                                          file_path_list,
                                          role="test",
                                          retry=self.agent_retry_times,
-                                         generated_patch=self.generated_patch)
+                                         generated_patch=generated_patch)
         print('test generator: response: ', response)
         base_path = f"{self.workdir}/{data.instance_id}_{str(uuid4())}"
         print('test generator: creating base path: ', base_path)
@@ -328,9 +330,8 @@ if __name__ == "__main__":
             retriever=retriever,
             retrieve_file_num=5,
             agent_retry_times=3,
-            generated_patch=patch
         )
-        testcase = test_generator.generate(data)
+        testcase = test_generator.generate(data, patch)
         print('generated testcase: ', testcase)
         print('----------- [END TEST GENERATOR] -----------')
 
@@ -346,9 +347,11 @@ if __name__ == "__main__":
         print('patch generated instance: ', data)
         print('test generated instance: ', testcase)
 
-        patch_with_test = merge_two_diffs(patch, testcase)
-        print('patch with test: ', patch_with_test)
+        result_patch = merge_diffs(patch, testcase)
+        print('patch with test: ', result_patch)
 
+        result = test_verifier.verify(data, result_patch)
+        print('patch with test verify result: ', result)
 
     else:
         import swebench.harness.agent.verifier_test_patch as test_patch

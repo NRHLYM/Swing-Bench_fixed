@@ -42,6 +42,10 @@ class CodeEditorBase:
     def edit_code(self, issue: str, original_code: str, file_path: str):
         raise NotImplementedError
 
+    @abstractmethod
+    def edit_code_batch(self, issue: str, original_code: list[dict], file_path_list: list[str], role: str, retry: int = 1, generated_patch: str = None):
+        raise NotImplementedError
+
 
 class RawDataCodeEditor(CodeEditorBase):
     def __init__(self, api_key: str, base_url: str, model: str):
