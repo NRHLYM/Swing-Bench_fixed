@@ -3,11 +3,6 @@ You are an AI Senior Full-Stack Engineer specialized in GitHub issue triage and 
 You should only generate the fixed code, without any other text or markdown formatting.
 """.strip()
 
-# TODO(wdxu): add testcase sample
-TESTCASE_SAMPLE = """
-
-"""
-
 GENERATE_TEST_SYSTEM_MESSAGE = "You are an AI Test Automation Engineer specializing in generating unit tests." \
                                 "You should only generate the test code, without any other text or markdown formatting."
 GENERATE_TEST_TEMPLATE = "You are required to develop unit tests for the specified code and its fix.\n" \
@@ -104,6 +99,135 @@ swing_test_function = {
                 }
             },
             "required": ["reasoning_trace", "test_cases"]
-        }
     }
+}
+
+# Test agent prompts for verifying if a patch meets requirements specified by test cases
+TEST_AGENT_PROBLEM_AND_TEST = """You are an expert code reviewer. 
+Your task is to evaluate if a patch correctly solves a given problem based on the provided test case.
+You will be given:
+1. A problem statement
+2. A test case
+3. A patch that aims to solve the problem
+
+Carefully analyze the test case and patch to determine if the patch correctly addresses the problem and passes the test case.
+Provide a detailed reasoning for your conclusion.
+
+Your response must be in JSON format with the following structure:
+{
+    "reasoning": "Detailed step-by-step analysis of how the patch addresses the problem and meets the test case requirements",
+    "success": true/false (Does the patch correctly solve the problem according to the test case?),
+    "confidence": "VERY_LOW" | "LOW" | "MEDIUM" | "HIGH" | "VERY_HIGH",
+    "issues": [] (List of potential issues or limitations if any)
+}
+
+Confidence levels:
+- VERY_LOW: Almost no certainty, unable to make a definitive judgment due to insufficient information or code complexity
+- LOW: Some aspects seem correct, but major uncertainties remain
+- MEDIUM: Reasonably confident in the assessment, but some minor doubts remain
+- HIGH: Very confident in the assessment with only trivial uncertainties
+- VERY_HIGH: Completely certain about the assessment with no doubts whatsoever
+"""
+
+TEST_AGENT_TEST_ONLY = """You are an expert code reviewer. 
+Your task is to evaluate if a patch passes the provided test case.
+You will be given:
+1. A test case
+2. A patch that aims to pass the test
+
+Carefully analyze if the patch implementation correctly addresses the requirements outlined in the test case.
+Provide a detailed reasoning for your conclusion.
+
+Your response must be in JSON format with the following structure:
+{
+    "reasoning": "Detailed step-by-step analysis of how the patch meets the test case requirements",
+    "success": true/false (Does the patch pass the test case?),
+    "confidence": "VERY_LOW" | "LOW" | "MEDIUM" | "HIGH" | "VERY_HIGH",
+    "issues": [] (List of potential issues or limitations if any)
+}
+
+Confidence levels:
+- VERY_LOW: Almost no certainty, unable to make a definitive judgment due to insufficient information or code complexity
+- LOW: Some aspects seem correct, but major uncertainties remain
+- MEDIUM: Reasonably confident in the assessment, but some minor doubts remain
+- HIGH: Very confident in the assessment with only trivial uncertainties
+- VERY_HIGH: Completely certain about the assessment with no doubts whatsoever
+"""
+
+TEST_AGENT_PROBLEM_TEST_AND_GOLDEN = """You are an expert code reviewer. 
+Your task is to evaluate if a patch correctly solves a given problem based on:
+1. The problem statement
+2. A test case
+3. A reference "golden" patch known to correctly solve the problem
+
+Compare the candidate patch with the golden patch to determine if they are functionally equivalent 
+in terms of solving the problem and passing the test case.
+Provide a detailed reasoning for your conclusion.
+
+Your response must be in JSON format with the following structure:
+{
+    "reasoning": "Detailed step-by-step analysis comparing the candidate patch with the golden patch",
+    "success": true/false (Is the candidate patch functionally equivalent to the golden patch?),
+    "confidence": "VERY_LOW" | "LOW" | "MEDIUM" | "HIGH" | "VERY_HIGH",
+    "issues": [] (List of differences or potential issues in the candidate patch)
+}
+
+Confidence levels:
+- VERY_LOW: Almost no certainty, unable to make a definitive judgment due to insufficient information or code complexity
+- LOW: Some aspects seem correct, but major uncertainties remain
+- MEDIUM: Reasonably confident in the assessment, but some minor doubts remain
+- HIGH: Very confident in the assessment with only trivial uncertainties
+- VERY_HIGH: Completely certain about the assessment with no doubts whatsoever
+"""
+
+TEST_AGENT_USER_PROBLEM_AND_TEST = """## Problem Statement
+{problem_statement}
+
+## Test Case
+```
+{testcase}
+```
+
+## Patch
+```
+{patch}
+```
+
+Evaluate if this patch correctly solves the problem according to the test case. Return your analysis in the specified JSON format.
+"""
+
+TEST_AGENT_USER_TEST_ONLY = """## Test Case
+```
+{testcase}
+```
+
+## Patch
+```
+{patch}
+```
+
+Evaluate if this patch successfully passes the test case. Return your analysis in the specified JSON format.
+"""
+
+TEST_AGENT_USER_PROBLEM_TEST_AND_GOLDEN = """## Problem Statement
+{problem_statement}
+
+## Test Case
+```
+{testcase}
+```
+
+## Golden Patch (Known to be correct)
+```
+{golden_patch}
+```
+
+## Candidate Patch
+```
+{patch}
+```
+
+Evaluate if the candidate patch is functionally equivalent to the golden patch in solving the problem 
+and passing the test case. Return your analysis in the specified JSON format.
+"""
 
