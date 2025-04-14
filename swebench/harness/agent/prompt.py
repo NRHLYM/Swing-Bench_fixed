@@ -23,9 +23,6 @@ class Prompt:
         self.user_prompt = None
 
 
-# TODO(haoran): better prompt
-# TODO(haoran): supporting more files
-# TODO(haoran): add naive function calling
 swing_patch_system_prompt = "Analyze and modify code to resolve issues while preserving functionality. You should use code_editor to process the intput field information. You should use <response>...</response> to wrap the code_editor output."
 swing_patch_retry_prompt = "The previous response is not correct because it is not a valid json object, please try again. The previous response is: "
 swing_patch_function = {
@@ -109,3 +106,4 @@ swing_test_function = {
             "required": ["reasoning_trace", "test_cases"]
         }
     }
+
