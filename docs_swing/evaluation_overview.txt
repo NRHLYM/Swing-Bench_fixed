@@ -25,6 +25,9 @@ Stage 1:
         F P P -> Pass
         P P F -> Failed
 
+        _ P F -> Failed
+        _ P P -> Pass
+
         CI
         CI_Job_1 P P F
         CI_Job_2 P P P
@@ -56,4 +59,5 @@ Stage 2:
     Case 3: with new patch, with new generated tests (Verifying)
         4. checkout base_commit - > apply generated patch and apply generated test -> run CI -> results_4.
          results_3 & results_4: golden patch results + generated test CI results
-         必须一致，一致则
+         必须一致，一致则patch_agent_score += 1, 否则test_agent_score += 1
+         

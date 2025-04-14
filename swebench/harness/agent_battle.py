@@ -54,42 +54,91 @@ def check_generated_patch(original_patch_result, golden_patch_result, generated_
     #         "failure_details": {}
     #     }, ...
     # }
+
+    failed_rules = set(["FPF", "PPF"])
+
     result = {}
     if not (original_patch_result.keys() == \
             golden_patch_result.keys() == \
             generated_patch_result.keys()):
         return None
+    ci_name_list = original_patch_result.keys()
+    for ci_name in ci_name_list:
+        result_str = ''
+        if original_patch_result[ci_name]['returncode'] != 0:
+            result_str += 'F'
+        else:
+            result_str += 'P'
 
-    for ci_name, ci_result in original_patch_result.items():
-        pass
-    # before PR(base): results_0
-    # after PR(golden patch): results_1
-    # after PR(generated patch): results_2
+        if golden_patch_result[ci_name]['returncode'] != 0:
+            result_str += 'F'
+        else:
+            result_str += 'P'
 
-    # results_0 & results_1 & results_2: golden patch CI results F or P
-    # F P F -> Failed
-    # F P P -> Pass
-    # P P F -> Failed
+        if generated_patch_result[ci_name]['returncode'] != 0:
+            result_str += 'F'
+        else:
+            result_str += 'P'
 
-    # CI
-    # CI_Job_1 P P F
-    # CI_Job_2 P P P
-    # CI_Job_3 F P P
-    # ...
+        if result_str in failed_rules:
+            result[ci_name] = False
+        else:
+            result[ci_name] = True
 
     return result
 
 
 def check_generated_test(golden_patch_result, generated_test_result):
-    return None
 
+    # [result format]
+    # test_results = {
+    #     "ci_1": {
+    #         "passed": passed_tests,
+    #         "failed": failed_tests,
+    #         "ignored": ignored_tests,
+    #         "failure_details": {}
+    #     }, ...
+    # }
+
+    failed_rules = set(["FP", "PF"])
+
+    result = {}
+
+    ci_name_list = generated_test_result.keys()
+    for ci_name in ci_name_list:
+        result_str = ''
+        if ci_name in golden_patch_result and golden_patch_result[ci_name]['returncode'] != 0:
+            result_str += 'F'
+        else:
+            result_str += 'P'
+
+        if ci_name in generated_test_result and generated_test_result[ci_name]['returncode'] != 0:
+            result_str += 'F'
+        else:
+            result_str += 'P'
+
+        if result_str in failed_rules:
+            result[ci_name] = False
+        else:
+            result[ci_name] = True
+
+    return result
 
 def is_valid_result(result):
+    for each in result.values():
+        if not result[each]:
+            return False
     return True
 
 
 def check_patches(golden_patch_result, patch_with_test_verify_result):
-    return True
+    if not golden_patch_result.keys() == patch_with_test_verify_result.keys():
+        return [False]
+    ci_name_list = golden_patch_result.keys()
+    for ci_name in ci_name_list:
+        if golden_patch_result[ci_name]['returncode'] != patch_with_test_verify_result[ci_name]['returncode']:
+            return [False]
+    return [True]
 
 
 # TODO(haoran): concurrent execution
@@ -133,7 +182,7 @@ def battle_one_turn(
         # 1. golden patch CI: checkout base_commit -> apply golden (merged_commit) patch -> run CI -> results_1.
         golden_patch_result = patch_verifier.verify(data, '') # results_1
 
-        for i in range(turns):
+        for _ in range(turns):
             # -- Stage 1: patch, test individually generation and verification.
             
             # Case 1: patch generation and verification.
