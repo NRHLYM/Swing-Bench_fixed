@@ -2,6 +2,8 @@ import logging
 import sys
 import os
 import platform
+
+from copy import deepcopy
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 from typing import List
 from swebench.harness.constants.swing_constants import SwingbenchInstance
@@ -32,6 +34,64 @@ logging.basicConfig(
 logger = logging.getLogger("agent_battle")
 
 
+def construct_base_instance(data: SwingbenchInstance):
+    base_instance = deepcopy.copy(data)
+    base_instance.patch = ''
+    base_instance.test_patch = ''
+    base_instance.merge_commit_sha = base_instance.base_commit
+
+    return base_instance
+
+
+def check_generated_patch(original_patch_result, golden_patch_result, generated_patch_result):
+
+    # [result format]
+    # test_results = {
+    #     "ci_1": {
+    #         "passed": passed_tests,
+    #         "failed": failed_tests,
+    #         "ignored": ignored_tests,
+    #         "failure_details": {}
+    #     }, ...
+    # }
+    result = {}
+    if not (original_patch_result.keys() == \
+            golden_patch_result.keys() == \
+            generated_patch_result.keys()):
+        return None
+
+    for ci_name, ci_result in original_patch_result.items():
+        pass
+    # before PR(base): results_0
+    # after PR(golden patch): results_1
+    # after PR(generated patch): results_2
+
+    # results_0 & results_1 & results_2: golden patch CI results F or P
+    # F P F -> Failed
+    # F P P -> Pass
+    # P P F -> Failed
+
+    # CI
+    # CI_Job_1 P P F
+    # CI_Job_2 P P P
+    # CI_Job_3 F P P
+    # ...
+
+    return result
+
+
+def check_generated_test(golden_patch_result, generated_test_result):
+    return None
+
+
+def is_valid_result(result):
+    return True
+
+
+def check_patches(golden_patch_result, patch_with_test_verify_result):
+    return True
+
+
 # TODO(haoran): concurrent execution
 def battle_one_turn(
     dataset: List[SwingbenchInstance],
@@ -55,41 +115,65 @@ def battle_one_turn(
     patch_agent_score = 0
     test_agent_score = 0
 
-    def check_result(result):
+    def get_returncode(result):
         for term in result.keys():
             if 'returncode' in term and term['returncode'] != 0:
                 return False
         return True
 
+
     for data in dataset:
+        # -- Prepare Stage:
+        # 0. original patch CI: checkout base_commit  -> apply original (base_commit) patch -> run CI -> results_0.
+
+        # clear all patch information, only need to keep the base_commit
+        base_instance = construct_base_instance(data)
+        original_patch_result = patch_verifier.verify(base_instance, '') # results_0
+
+        # 1. golden patch CI: checkout base_commit -> apply golden (merged_commit) patch -> run CI -> results_1.
+        golden_patch_result = patch_verifier.verify(data, '') # results_1
+
         for i in range(turns):
-            # Stage 1: patch, test individually generation and verification.
-
-            # Generate patch
+            # -- Stage 1: patch, test individually generation and verification.
+            
+            # Case 1: patch generation and verification.
             patch = patch_generator.generate(data)
+            generated_patch_result = patch_verifier.verify(data, patch) # results_2
 
-            # Verify patch
-            patch_verify_result = patch_verifier.verify(data, patch)
-            if check_result(patch_verify_result['result']):
+            # Check if generated patch is valid.
+            patch_verify_result = check_generated_patch(original_patch_result,
+                                                        golden_patch_result,
+                                                        generated_patch_result)
+
+            if not is_valid_result(patch_verify_result):
                 patch_agent_score -= 1
                 continue
-                
-            # Generate test
-            test = test_generator.generate(data, patch)
 
-            # Verify test
-            test_verify_result = test_verifier.verify(data, test)
-            if check_result(test_verify_result['result']):
+            # Case 2: test generation and verification.
+            test = test_generator.generate(data, patch)
+            generated_test_result = test_verifier.verify(data, test) # results_3
+
+            # Check if generated test is valid.
+            test_verify_result = check_generated_test(golden_patch_result,
+                                                      generated_test_result)
+
+            if not is_valid_result(test_verify_result):
                 test_agent_score -= 1
                 continue
 
-            # Stage 2: patch and test generation and verification.
+            # -- Stage 2: patch and test generation and verification.
+
+            # Case 3: with new patch, with new generated tests (Verifying)
             patch_with_test = merge_diffs(patch, test)
-            patch_with_test_verify_result = test_verifier.verify(data, patch_with_test)
-            if check_result(patch_with_test_verify_result['result']):
-                patch_agent_score += 1
-            else:
-                test_agent_score += 1
+            patch_with_test_verify_result = test_verifier.verify(data, patch_with_test) # results_4
+            
+            # Check if patch_with_test is valid.
+            patch_with_test_verify_result = check_patches(golden_patch_result,
+                                                          patch_with_test_verify_result)
+
+            if not is_valid_result(patch_with_test_verify_result):
+                patch_agent_score -= 1
+                continue
 
     return [patch_agent_score, test_agent_score]            
 
