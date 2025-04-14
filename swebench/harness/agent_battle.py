@@ -172,8 +172,9 @@ def battle_one_turn(
                                                           patch_with_test_verify_result)
 
             if not is_valid_result(patch_with_test_verify_result):
-                patch_agent_score -= 1
-                continue
+                patch_agent_score += 1
+            else:
+                test_agent_score += 1
 
     return [patch_agent_score, test_agent_score]            
 
