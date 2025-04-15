@@ -232,7 +232,7 @@ class ActCITool(CIToolBase):
         super().__init__(config)
         self.act_list_path = 'act_list.txt'
         self.apply_patch = self.config["apply_patch"]
-        self.cloned_repo_path = self.config["repo"].split("/")[1] + "_" + self.config["merge_commit"]
+        self.cloned_repo_path = self.config["repo"].split("/")[1] + "__" + self.config["merge_commit"]
         self.ci_dict = dict()
         self.result_lock = threading.Lock()
         self.result_list = []

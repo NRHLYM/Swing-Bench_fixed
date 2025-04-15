@@ -27,18 +27,19 @@ def delete_act_containers():
 
 
 if __name__ == "__main__":
-    os.makedirs("log/", exist_ok=True)
-    with open('repositories.jsonl', 'r') as f:
+    with open('/mnt/Data/wdxu/github/Swing-Bench/repo.jsonl', 'r') as f:
         count = 0
         for line in f:
             data = json.loads(line.strip())
             repo_name = data["name"]
-            log_path = f"./log/{repo_name}"
-            target_path = f"/home/mnt/hrwang/github_repos/{repo_name}"
+            
+            log_path = f"/home/wdxu/testbed/log/{repo_name}"
+            target_path = f"/home/wdxu/testbed/repo_ci/{repo_name}"
             if not os.path.exists(log_path):
                 os.makedirs(log_path, exist_ok=True)
 
                 print(f"run in repo {repo_name}")
+                subprocess.run(f"git clone {data['url']}.git {target_path}", shell=True, check=True)
                 script = ["#!/bin/bash"]
                 script.append(f"cd {target_path}")
                 script.append(f"act --list > {log_path}/act.txt")
