@@ -53,6 +53,9 @@ class PatchGenerator(Generator):
         self.retriever = retriever
         self.retrieve_file_num = retrieve_file_num
         self.agent_retry_times = agent_retry_times
+    
+    def model_name(self):
+        return self.code_editor.model
 
     def generate(self, data: SwingbenchInstance):
         """
@@ -67,7 +70,6 @@ class PatchGenerator(Generator):
                                          role="patch",
                                          retry=self.agent_retry_times)
         base_path = f"{self.workdir}/{data.instance_id}_{str(uuid4())}"
-        print('patch generator: creating base path: ', base_path)
 
         # convert repo path from x/y to x__y
         repo_path = f"{self.src_folder}/{data.repo.replace('/', '__')}"
@@ -104,7 +106,6 @@ class TestGenerator(Generator):
         return self.code_editor.model
 
     def generate(self, data: SwingbenchInstance, generated_patch: str = None):
-        print('test generator: data: ', data)
         # TODO(wdxu): remove this hack.
         data.hints_text += "test, testcase, unittest."
         code_snippet = self.retriever.retrieve(data, k=self.retrieve_file_num)
@@ -116,9 +117,7 @@ class TestGenerator(Generator):
                                          role="test",
                                          retry=self.agent_retry_times,
                                          generated_patch=generated_patch)
-        print('test generator: response: ', response)
         base_path = f"{self.workdir}/{data.instance_id}_{str(uuid4())}"
-        print('test generator: creating base path: ', base_path)
 
         # convert repo path from x/y to x__y
         repo_path = f"{self.src_folder}/{data.repo.replace('/', '__')}"

@@ -76,7 +76,6 @@ class RawDataCodeEditor(CodeEditorBase):
                 max_completion_tokens=32768,
                 
             )
-            print('response: ', response.choices[0].message.content)
             function_call_args, raw_resposne = self._parse_structured_data(response.choices[0].message.content)
             if function_call_args == None:
                 input = origin_input + "\n " + \

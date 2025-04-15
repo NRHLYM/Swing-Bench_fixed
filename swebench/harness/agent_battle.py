@@ -218,7 +218,10 @@ def battle_one_turn(
                 patch_agent_score += 1
             else:
                 test_agent_score += 1
-
+    print('patch generator: ', patch_generator.model_name())
+    print('test generator: ', test_generator.model_name())
+    print('patch_agent_score:', patch_agent_score)
+    print('test_agent_score:', test_agent_score)
     return [patch_agent_score, test_agent_score]            
 
 
