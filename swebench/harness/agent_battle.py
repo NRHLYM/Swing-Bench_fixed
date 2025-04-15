@@ -5,13 +5,12 @@ import platform
 
 from copy import deepcopy
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
-from typing import List
+from typing import List, Tuple
 from swebench.harness.constants.swing_constants import SwingbenchInstance
 from swebench.harness.swing_utils import (
     load_swingbench_dataset,
 )
 
-from swebench.harness.agent.model import ModelInfo
 from swebench.harness.agent.verifier import PatchVerifier, TestVerifier, PatchGenerator, TestGenerator
 from swebench.harness.agent.editor import CodeEditorBase, RawDataCodeEditor
 from swebench.harness.agent.retriever import BM25DiskRetriever, Retriever
@@ -34,8 +33,8 @@ logging.basicConfig(
 logger = logging.getLogger("agent_battle")
 
 
-def construct_base_instance(data: SwingbenchInstance):
-    base_instance = deepcopy.copy(data)
+def construct_base_instance(data: SwingbenchInstance) -> SwingbenchInstance:
+    base_instance = deepcopy(data)
     base_instance.patch = ''
     base_instance.test_patch = ''
     base_instance.merge_commit_sha = base_instance.base_commit
@@ -43,7 +42,7 @@ def construct_base_instance(data: SwingbenchInstance):
     return base_instance
 
 
-def check_generated_patch(original_patch_result, golden_patch_result, generated_patch_result):
+def check_generated_patch(original_patch_result: dict, golden_patch_result: dict, generated_patch_result: dict) -> bool:
 
     # [result format]
     # test_results = {
@@ -62,20 +61,21 @@ def check_generated_patch(original_patch_result, golden_patch_result, generated_
             golden_patch_result.keys() == \
             generated_patch_result.keys()):
         return None
-    ci_name_list = original_patch_result.keys()
+    ci_name_list = original_patch_result['result'].keys()
+
     for ci_name in ci_name_list:
         result_str = ''
-        if original_patch_result[ci_name]['returncode'] != 0:
+        if original_patch_result['result'][ci_name]['returncode'] != 0:
             result_str += 'F'
         else:
             result_str += 'P'
 
-        if golden_patch_result[ci_name]['returncode'] != 0:
+        if golden_patch_result['result'][ci_name]['returncode'] != 0:
             result_str += 'F'
         else:
             result_str += 'P'
 
-        if generated_patch_result[ci_name]['returncode'] != 0:
+        if generated_patch_result['result'][ci_name]['returncode'] != 0:
             result_str += 'F'
         else:
             result_str += 'P'
@@ -88,7 +88,7 @@ def check_generated_patch(original_patch_result, golden_patch_result, generated_
     return result
 
 
-def check_generated_test(golden_patch_result, generated_test_result):
+def check_generated_test(golden_patch_result: dict, generated_test_result: dict) -> bool:
 
     # [result format]
     # test_results = {
@@ -104,15 +104,15 @@ def check_generated_test(golden_patch_result, generated_test_result):
 
     result = {}
 
-    ci_name_list = generated_test_result.keys()
+    ci_name_list = generated_test_result['result'].keys()
     for ci_name in ci_name_list:
         result_str = ''
-        if ci_name in golden_patch_result and golden_patch_result[ci_name]['returncode'] != 0:
+        if ci_name in golden_patch_result and golden_patch_result['result'][ci_name]['returncode'] != 0:
             result_str += 'F'
         else:
             result_str += 'P'
 
-        if ci_name in generated_test_result and generated_test_result[ci_name]['returncode'] != 0:
+        if ci_name in generated_test_result and generated_test_result['result'][ci_name]['returncode'] != 0:
             result_str += 'F'
         else:
             result_str += 'P'
@@ -124,19 +124,19 @@ def check_generated_test(golden_patch_result, generated_test_result):
 
     return result
 
-def is_valid_result(result):
-    for each in result.values():
-        if not result[each]:
+def is_valid_result(result: dict) -> bool:
+    for each in result:
+        if not each:
             return False
     return True
 
 
-def check_patches(golden_patch_result, patch_with_test_verify_result):
+def check_patches(golden_patch_result: dict, patch_with_test_verify_result: dict) -> bool:
     if not golden_patch_result.keys() == patch_with_test_verify_result.keys():
         return [False]
-    ci_name_list = golden_patch_result.keys()
+    ci_name_list = golden_patch_result['result'].keys()
     for ci_name in ci_name_list:
-        if golden_patch_result[ci_name]['returncode'] != patch_with_test_verify_result[ci_name]['returncode']:
+        if golden_patch_result['result'][ci_name]['returncode'] != patch_with_test_verify_result['result'][ci_name]['returncode']:
             return [False]
     return [True]
 
@@ -149,7 +149,7 @@ def battle_one_turn(
     patch_verifier: PatchVerifier,
     test_verifier: TestVerifier,
     turns: int = 10,
-):
+) -> List[int]:
     """
     The logic of model battle.
 
@@ -163,12 +163,6 @@ def battle_one_turn(
     """
     patch_agent_score = 0
     test_agent_score = 0
-
-    def get_returncode(result):
-        for term in result.keys():
-            if 'returncode' in term and term['returncode'] != 0:
-                return False
-        return True
 
 
     for data in dataset:
@@ -238,7 +232,7 @@ def battle(
     ci_tool_name: str,
     retrieve_file_num: int = 5,
     agent_retry_times: int = 3,
-):
+) -> Tuple[List[int], List[int]]:
     def get_roles(code_editor_lhs, code_editor_rhs):
         patch_verifier = PatchVerifier(ci_tool_name=ci_tool_name, 
             workdir=workdir, 
@@ -296,7 +290,7 @@ def main(
     model_rhs: str,
     retriever_index_dir: str,
     ci_tool_name: str,
-):
+) -> Tuple[List[int], List[int]]:
     """
     Runs evaluation to battle two agents on a dataset.
     """

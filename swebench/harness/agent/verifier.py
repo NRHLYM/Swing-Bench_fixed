@@ -5,12 +5,10 @@ from datetime import datetime
 import subprocess
 from uuid import uuid4
 from swebench.harness.constants.swing_constants import SwingbenchInstance
-from swebench.harness.router import CIToolBase, CargoCITool
+from swebench.harness.router import CIToolBase
 from swebench.harness.router import EVAL_HANDLER
-from swebench.harness.agent.prompt import GENERATE_TEST_SYSTEM_MESSAGE, GENERATE_TEST_TEMPLATE, TESTCASE_SAMPLE
 from swebench.harness.agent.model import AgentProxy
 import shutil
-from swebench.harness.agent.utils import parse_testcase, apply_git_patch, files_to_str
 from swebench.harness.agent.editor import generate_git_diff_batch
 from swebench.harness.agent.retriever import Retriever
 from swebench.harness.agent.editor import CodeEditorBase

@@ -3,7 +3,6 @@ import re
 import os
 import tempfile
 import threading
-from queue import Queue
 import json
 from dataclasses import dataclass
 import logging

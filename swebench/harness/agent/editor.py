@@ -5,7 +5,7 @@ import re
 import subprocess
 import copy
 from openai import OpenAI
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from swebench.harness.agent.prompt import swing_patch_retry_prompt, swing_test_retry_prompt, swing_patch_function, swing_test_function, swing_patch_system_prompt, swing_test_system_prompt
 
 def remove_line_number(content):
