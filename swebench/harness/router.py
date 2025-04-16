@@ -298,7 +298,7 @@ class ActCITool(CIToolBase):
 
         script = ["#!/bin/bash"]
         script.extend(["cd " + target_dir])
-        script.extend(["act --list > {}".format(self.act_list_path)])
+        script.extend([f"act --list > {self.act_list_path}"])
         os.system("\n".join(script))
         # only absolute path? 
         act_list_path = os.path.join(target_dir, self.act_list_path)
@@ -345,6 +345,14 @@ class ActCITool(CIToolBase):
             #     return
             # print(target_dir)
             # print(os.path.join(target_dir, ci[1]))
+            logger.info("Run Act with command: " + "act " + "-j " + value + " " \
+                                            "-P " + "ubuntu-latest=catthehacker/ubuntu:full-latest " + \
+                                            "--artifact-server-port " + str(port) + " " +\
+                                            "--artifact-server-addr " + "0.0.0.0" + " " +\
+                                            "--artifact-server-path " + f"./act/{port}" + " " +\
+                                            "-W " + os.path.join(target_dir, ci[1]) + " " +\
+                                            "--json")
+
             process = subprocess.Popen(["act", "-j", value,
                                         "-P", "ubuntu-latest=catthehacker/ubuntu:full-latest",
                                         "--artifact-server-port", str(port),
@@ -363,7 +371,10 @@ class ActCITool(CIToolBase):
                 "returncode": process.returncode,
                 "processed_output": self._process_act_output(stdout)
             }
-            with open(path, 'w', encoding='utf-8') as f:
+            result_path = os.path.join(target_dir, path) 
+            if not os.path.exists(os.path.dirname(result_path)):
+                os.makedirs(os.path.dirname(result_path))
+            with open(result_path, 'w', encoding='utf-8') as f:
                 json.dump(result, f, ensure_ascii=False, indent=4)
 
             self.result_lock.acquire()
@@ -415,6 +426,7 @@ class ActCITool(CIToolBase):
         logger.info(f"Starting CI run for {self.config['repo']} (ID: {self.config.get('instance_id', 'unknown')})")
 
         self._get_ci_job_name_id_dict(task.target_dir)
+        logger.info(f'Collected CI job name and id dict: {self.ci_dict}')
         threads = []
         for ci in self.config["ci_name_list"]:
             thread = threading.Thread(
@@ -475,17 +487,29 @@ if __name__ == '__main__':
     port_pool = PortPool([i for i in range(50505, 52505)])
 
     # Comment(wdxu): fake data for test only.
-    act = ActCITool({"act_path": "/mnt/Data/wdxu/github/act/bin/act", \
-                     "instance_id": "cplee__github-actions-demo-1", \
-                     "repo": "cplee/github-actions-demo", \
-                     "base_commit": "2dcabf3769c2613687310c7b71b89af681e8ee50", \
-                     "merge_commit": "2dcabf3769c2613687310c7b71b89af681e8ee50", \
-                     "patch": "", \
-                     "apply_patch": True, \
-                     "src_folder": os.environ["SWING_TESTBED_PATH"], \
-                     "workdir": os.environ["SWING_TESTBED_PATH"], \
-                     "ci_name_list": [["test", ".github/workflows/main.yml"]], \
-                     "output_dir": os.environ["SWING_TESTBED_PATH"]})
+    # act = ActCITool({"act_path": "/mnt/Data/wdxu/github/act/bin/act", \
+    #                  "instance_id": "cplee__github-actions-demo-1", \
+    #                  "repo": "cplee/github-actions-demo", \
+    #                  "base_commit": "2dcabf3769c2613687310c7b71b89af681e8ee50", \
+    #                  "merge_commit": "2dcabf3769c2613687310c7b71b89af681e8ee50", \
+    #                  "patch": "", \
+    #                  "apply_patch": True, \
+    #                  "src_folder": os.environ["SWING_TESTBED_PATH"], \
+    #                  "workdir": os.environ["SWING_TESTBED_PATH"], \
+    #                  "ci_name_list": [["test", ".github/workflows/main.yml"]], \
+    #                  "output_dir": os.environ["SWING_TESTBED_PATH"]})
+    act = ActCITool({"act_path": "/mnt/Data/wdxu/github/act/bin/act",
+                     "instance_id": "rustzx__rustzx-84",
+                     "repo": "rustzx/rustzx",
+                     "base_commit": "53cfe0985162dc3e7f6f64fee77a67e3c08a1b9a",
+                     "merge_commit": "53cfe0985162dc3e7f6f64fee77a67e3c08a1b9a",
+                     "patch": "",
+                     "src_folder": "/mnt/Data/wdxu/github/Swing-Bench/testbed",
+                     "output_dir": "logs",
+                     "workdir": "/mnt/Data/wdxu/github/Swing-Bench/testbed/rustzx__rustzx-84_0842a35c-2520-48a4-93c5-d320350242a6",
+                     "apply_patch": True,
+                     "ci_name_list": [['build', '.github/workflows/ci.yml'], ['unit_tests', '.github/workflows/test-rustzx-z80.yml']]})
+
     result = act.run_ci(port_pool)
     print(result)
     # with open('./result.log', 'w') as f:

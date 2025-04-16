@@ -349,7 +349,7 @@ if __name__ == "__main__":
     # Common args
     parser.add_argument(
         "--dataset_name",
-        default="tmpdata/dataset.json",
+        default="tmpdata/demo_dataset.json",
         type=str,
         help="Name of dataset or path to JSON file.",
     )
@@ -391,7 +391,7 @@ if __name__ == "__main__":
         "--retriever_index_dir", type=str, default=os.environ["SWING_INDEXES_PATH"], help="Retriever index directory"
     )
     parser.add_argument(
-        "--ci_tool_name", type=str, default='cargo', help="CI tool name"
+        "--ci_tool_name", type=str, default='act', help="CI tool name"
     )
     args = parser.parse_args()
     main(**vars(args))
