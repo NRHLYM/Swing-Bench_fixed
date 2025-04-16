@@ -100,16 +100,16 @@ def build_repo_index(
     repo: str,
     commits: Set[str],
     root_dir: str,
+    repo_root_dir: str,
     document_encoding_style: str,
     python: str,
-    token: str
 ):
     document_encoding_func = DOCUMENT_ENCODING_FUNCTIONS[document_encoding_style]
     
-    index_root = Path(root_dir) / repo.replace('/', '_') / document_encoding_style
+    index_root = Path(root_dir) / repo.replace('/', '__') / document_encoding_style
     index_root.mkdir(parents=True, exist_ok=True)
     
-    repo_dir = clone_repo(repo, root_dir, token)
+    repo_dir = os.path.join(repo_root_dir, repo.replace('/', '__'))
     
     for commit in tqdm(commits, desc=f"Building indexes for {repo}"):
         commit_index_path = index_root / commit
@@ -169,25 +169,31 @@ def main():
     parser.add_argument("--document_encoding_style",
                       choices=DOCUMENT_ENCODING_FUNCTIONS.keys(),
                       default="file_name_and_contents")
+    parser.add_argument("--repo_root_dir", type=str, default="./testbed",
+                      help="Directory to store the repos")
     args = parser.parse_args()
     
     repo_commits = extract_repo_commits(args.dataset_path)
     
     python = subprocess.run("which python", shell=True, capture_output=True)
     python = python.stdout.decode("utf-8").strip()
-    token = os.environ.get("GITHUB_TOKEN", "git")
     
     for repo, commits in tqdm(repo_commits.items(), desc="Processing repositories"):
         build_repo_index(
             repo=repo,
             commits=commits,
             root_dir=args.output_dir,
+            repo_root_dir=args.repo_root_dir,
             document_encoding_style=args.document_encoding_style,
             python=python,
-            token=token
         )
 
 
 if __name__ == "__main__":
-    # python -m swebench.prepare.swing_build_index --dataset_path tmpdata/dataset.json --output_dir tmpdata/indexes
+    """
+    python swebench/prepare/swing_build_index.py \
+        --dataset_path tmpdata/Swing-Dataset/Swing-Rust/all_tasks.jsonl \
+        --repo_root_dir ./testbed \
+        --output_dir tmpdata/indexes/
+    """
     main()
