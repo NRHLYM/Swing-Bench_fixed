@@ -156,7 +156,7 @@ class PatchVerifier(Verifier):
         self.src_folder = src_folder
         self.port_pool_size = 100
 
-    def verify(self, data: SwingbenchInstance, patch: str):
+    def verify(self, data: SwingbenchInstance, patch: str) -> dict:
         data.patch = patch
         base_path = f"{self.workdir}/{data.instance_id}_{str(uuid4())}"
         if os.path.exists(base_path):
@@ -223,7 +223,7 @@ class TestVerifier(Verifier):
         self.proxy = proxy
         self.port_pool_size = 100
 
-    def verify(self, data: SwingbenchInstance, testcase: str):
+    def verify(self, data: SwingbenchInstance, testcase: str) -> dict:
         # apply both test patch and original patch
         base_path = f"{self.workdir}/{data.instance_id}_{str(uuid4())}"
         if os.path.exists(base_path):

@@ -17,6 +17,7 @@ from swebench.harness.agent.retriever import BM25DiskRetriever, Retriever
 
 from swebench.harness.swing_utils import merge_diffs
 
+DEBUG_ONE_SHOT = True
 
 if platform.system() == "Linux":
     import resource
@@ -231,6 +232,12 @@ def battle_one_turn(
                 patch_agent_score += 1
             else:
                 test_agent_score += 1
+            
+            if DEBUG_ONE_SHOT:
+                break
+
+        if DEBUG_ONE_SHOT:
+            break
 
     logger.info(f'patch generator: {patch_generator.model_name()}')
     logger.info(f'test generator: {test_generator.model_name()}')
@@ -282,6 +289,9 @@ def battle(
                              test_generator,
                              patch_verifier,
                              test_verifier)
+
+    if DEBUG_ONE_SHOT:
+        return result, result
 
     patch_generator, test_generator, patch_verifier, test_verifier = \
         get_roles(code_editor_rhs, code_editor_lhs)
@@ -335,7 +345,7 @@ def main(
     with_ci = 'act' == ci_tool_name
 
     dataset = load_swingbench_dataset(dataset_name, language, with_ci=with_ci)
-    logger.info(f'dataset: {dataset}')
+    logger.info(f'dataset size: {len(dataset)}')
 
     retriever = BM25DiskRetriever(index_dir=retriever_index_dir)
     logger.info(f'retriever: {retriever}')

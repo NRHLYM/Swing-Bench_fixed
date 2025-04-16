@@ -1,6 +1,6 @@
 from enum import Enum, auto
 from pathlib import Path
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 # Constants - Evaluation Log Directories
 BASE_IMAGE_BUILD_DIR = Path("logs/build_images/base")
@@ -13,20 +13,34 @@ RUN_VALIDATION_LOG_DIR = Path("logs/run_validation")
 # Constants - Task Instance Class
 @dataclass
 class SwingbenchInstance:
-    repo: str
-    instance_id: str
-    base_commit: str
-    patch: str
-    test_patch: str
-    problem_statement: str
-    hints_text: str
-    created_at: str = None
-    pull_number: int = None
-    issue_numbers: int = None
-    merge_commit_sha: str = None
-    ci_name_list: list[str] = None
-    retrieved_files: dict[str, str] = None
-   
+    repo: str = ""
+    instance_id: str = ""
+    base_commit: str = ""
+    patch: str = ""
+    test_patch: str = ""
+    problem_statement: str = ""
+    hints_text: str = ""
+    created_at: str = ""
+    pull_number: int = 0
+    issue_numbers: int = 0
+    merge_commit_sha: str = ""
+    ci_name_list: list[str] = field(default_factory=list)
+    retrieved_files: dict[str, str] = field(default_factory=dict)
+    
+    def __str__(self):
+        return f"SwingbenchInstance( " \
+               f"repo={self.repo}, " \
+               f"instance_id={self.instance_id}, " \
+               f"base_commit={self.base_commit}, " \
+               f"patch={self.patch[:15]}...), " \
+               f"test_patch={self.test_patch[:15]}...), " \
+               f"problem_statement={self.problem_statement[:15]}...), " \
+               f"hints_text={self.hints_text[:15]}...)"
+
+    def __repr__(self):
+        return self.__str__()
+
+
 # Constants - Test Types, Statuses, Commands
 FAIL_TO_PASS = "FAIL_TO_PASS"
 FAIL_TO_FAIL = "FAIL_TO_FAIL"
