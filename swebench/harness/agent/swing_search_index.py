@@ -24,7 +24,7 @@ def search_instance(
     
     index_path = (
         index_root / 
-        repo.replace('/', '_') / 
+        repo.replace('/', '__') / 
         document_encoding_style /
         commit /
         "index"
