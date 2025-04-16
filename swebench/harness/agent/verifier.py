@@ -69,6 +69,8 @@ class PatchGenerator(Generator):
                                          file_path_list,
                                          role="patch",
                                          retry=self.agent_retry_times)
+        if response is None:
+            return None
         base_path = f"{self.workdir}/{data.instance_id}_{str(uuid4())}"
 
         # convert repo path from x/y to x__y
@@ -117,6 +119,8 @@ class TestGenerator(Generator):
                                          role="test",
                                          retry=self.agent_retry_times,
                                          generated_patch=generated_patch)
+        if response is None:
+            return None
         base_path = f"{self.workdir}/{data.instance_id}_{str(uuid4())}"
 
         # convert repo path from x/y to x__y
@@ -128,8 +132,15 @@ class TestGenerator(Generator):
 
         shutil.copytree(repo_path, base_path)
         subprocess.run(["git", "checkout", data.base_commit], cwd=base_path)
-
-        patch = generate_git_diff_batch(response["test_cases"], base_path)
+    
+        try:
+            patch = generate_git_diff_batch(response["test_cases"], base_path)
+        except Exception as e:
+            print(f"Error generating test cases: {e}")
+            print(f"Response: {response}")
+            print(f"File path list: {file_path_list}")
+            print(f"Code snippet list: {code_snippet_list}")
+            return None
         # if os.path.exists(base_path):
         #     shutil.rmtree(base_path)
         return patch

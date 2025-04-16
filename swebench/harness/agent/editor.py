@@ -8,15 +8,15 @@ from openai import OpenAI
 from abc import abstractmethod
 from swebench.harness.agent.prompt import swing_patch_retry_prompt, swing_test_retry_prompt, swing_patch_function, swing_test_function, swing_patch_system_prompt, swing_test_system_prompt
 
-def remove_line_number(content):
+def remove_line_number(content: str) -> str:
     return re.sub(r"^\d+\s", "", content, flags=re.MULTILINE)
 
-def remove_empty_line(code):
+def remove_empty_line(code: str) -> str:
     lines = code.splitlines()
     filtered_lines = [line for line in lines if line.strip() != ""]
     return "\n".join(filtered_lines)
 
-def load_from_repo_structure(file_path, repo_structure, decoding="utf-8"):
+def load_from_repo_structure(file_path: str, repo_structure: dict, decoding: str = "utf-8") -> str:
     path_parts = file_path.split("/")
     if len(path_parts) == 1:
         path_parts.insert(0, "")
@@ -96,7 +96,11 @@ class RawDataCodeEditor(CodeEditorBase):
             self.function["input"]["generated_patch"] = generated_patch
 
         origin_input = json.dumps(self.function)
-        function_call_args = self._call_api(origin_input, role, retry)
+        try:
+            function_call_args = self._call_api(origin_input, role, retry)
+        except Exception as e:
+            print(e)
+            function_call_args = None
         if function_call_args is None:
             return None
         if role == "patch":
@@ -121,9 +125,14 @@ class RawDataCodeEditor(CodeEditorBase):
             self.function["input"]["generated_patch"] = generated_patch
 
         origin_input = json.dumps(self.function)
-        function_call_args = self._call_api(origin_input, role, retry)
+        try:
+            function_call_args = self._call_api(origin_input, role, retry)
+        except Exception as e:
+            print(e)
+            function_call_args = None
         if function_call_args is None:
             return None
+
         if role == "patch":
             return {
                 "reasoning_trace": function_call_args["reasoning_trace"],
@@ -137,7 +146,7 @@ class RawDataCodeEditor(CodeEditorBase):
 
 
 # TODO(haoran): use flake8 to lint the code
-def lint_code(code: str, prev_code: str = ""):
+def lint_code(code: str, prev_code: str = "") -> tuple[bool, set[str], set[str]]:
     """
     Lints Python code using flake8 to check for fatal errors.
     
@@ -199,12 +208,12 @@ def lint_code(code: str, prev_code: str = ""):
             
         return True, set(), set()
 
-def normalize_code(code):
+def normalize_code(code: str) -> str:
     lines = code.split('\n')
     normalized_lines = [line.lstrip() for line in lines]
     return '\n'.join(normalized_lines)
 
-def find_code_match(content, code_to_find):
+def find_code_match(content: str, code_to_find: str) -> tuple[str, str]:
     normalized_snippet = normalize_code(code_to_find)
     content_lines = content.split('\n')
     
@@ -227,12 +236,12 @@ def find_code_match(content, code_to_find):
     
     return None, None
 
-def apply_indentation(code, indentation):
+def apply_indentation(code: str, indentation: str) -> str:
     lines = code.split('\n')
     indented_lines = [indentation + line if line.strip() else line for line in lines]
     return '\n'.join(indented_lines)
 
-def process_file_edits(file_path, file_edits, original_content):
+def process_file_edits(file_path: str, file_edits: list[dict], original_content: str) -> str:
     modified_content = original_content
 
     for edit in file_edits:
@@ -262,7 +271,7 @@ def process_file_edits(file_path, file_edits, original_content):
     
     return modified_content
 
-def generate_git_diff_batch(code_edits, base_path):
+def generate_git_diff_batch(code_edits: list[dict], base_path: str) -> dict:
     """
     Creates git diffs by applying all edits to original files and generating diffs.
     Handles both existing file modifications and new file creation.

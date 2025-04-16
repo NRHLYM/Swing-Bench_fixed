@@ -148,7 +148,7 @@ def battle_one_turn(
     test_generator: TestGenerator,
     patch_verifier: PatchVerifier,
     test_verifier: TestVerifier,
-    turns: int = 10,
+    turns: int = 1,
 ) -> List[int]:
     """
     The logic of model battle.
@@ -207,8 +207,14 @@ def battle_one_turn(
             # -- Stage 2: patch and test generation and verification.
 
             # Case 3: with new patch, with new generated tests (Verifying)
-            patch_with_test = merge_diffs(patch, test)
-            patch_with_test_verify_result = test_verifier.verify(data, patch_with_test) # results_4
+            try:
+                patch_with_test = merge_diffs(patch, test)
+                patch_with_test_verify_result = test_verifier.verify(data, patch_with_test) # results_4
+            except Exception as e:
+                print(f"Error merging diffs: {e}")
+                print(f"Patch: {patch}")
+                print(f"Test: {test}")
+                continue
             
             # Check if patch_with_test is valid.
             patch_with_test_verify_result = check_patches(golden_patch_result,
