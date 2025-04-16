@@ -346,6 +346,7 @@ class ActCITool(CIToolBase):
             # print(target_dir)
             # print(os.path.join(target_dir, ci[1]))
             process = subprocess.Popen(["act", "-j", value,
+                                        "-P", "ubuntu-latest=catthehacker/ubuntu:full-latest",
                                         "--artifact-server-port", str(port),
                                         "--artifact-server-addr", "0.0.0.0", 
                                         "--artifact-server-path", f"./act/{port}",
