@@ -179,6 +179,21 @@ def load_swingbench_dataset(
     return [SwingbenchInstance(**instance) for instance in dataset]
 
 
+def load_swingbench_dataset(
+    dataset_name: str,
+    sub_dataset_identifier: str,
+    with_ci: bool = False
+) -> list[SwingbenchInstance]:
+    dataset = load_dataset(dataset_name, sub_dataset_identifier)
+    instance_list = []
+    for instance in dataset[sub_dataset_identifier]:
+        if with_ci and not instance['ci_name_list']:
+            continue
+        instance_list.append(SwingbenchInstance(**instance))
+
+    return instance_list
+
+
 ### MARK - Patch Correction
 PATCH_PATTERN = re.compile(
     r"(?:diff[\w\_\.\ \/\-]+\n)?\-\-\-\s+a\/(?:.*?)\n\+\+\+\s+b\/(?:.*?)(?=diff\ |\-\-\-\ a\/|\Z)",
@@ -418,4 +433,6 @@ if __name__ == "__main__":
     diff_2 = 'diff --git a/rustzx-core/src/zx/tape/tap.rs b/rustzx-core/src/zx/tape/tap.rs\nindex feaa5e7..d03d2f2 100644\n--- a/rustzx-core/src/zx/tape/tap.rs\n+++ b/rustzx-core/src/zx/tape/tap.rs\n@@ -84,11 +84,13 @@ impl Tap {\n \n         let mut tap = Self::default();\n \n-        let mut buffer = [0u8; 1024];\n-        let mut read_bytes = asset.read(&mut buffer)?;\n-        while read_bytes != 0 {\n-            tap.data.extend_from_slice(&buffer[0..read_bytes]);\n+        let mut read_bytes;\n+        loop {\n             read_bytes = asset.read(&mut buffer)?;\n+            if read_bytes == 0 {\n+                break;\n+            }\n+            tap.data.extend_from_slice(&buffer[0..read_bytes]);\n         }\n \n         tap.block_info.clear();\n'
     
     print(merge_two_diffs(diff_1, diff_2))
+    
+    # print(len(load_swingbench_dataset('/mnt/Data/wdxu/github/Swing-Bench/tmpdata/SwingBench', 'Rust', True)))
     
