@@ -194,18 +194,18 @@ def battle_one_turn(
         # clear all patch information, only need to keep the base_commit
         base_instance = construct_base_instance(data)
         original_patch_result = patch_verifier.verify(base_instance, '') # results_0
-        logger.info(f'original_patch_result: {original_patch_result}')
+        logger.info(f'original_patch_result: {original_patch_result["result"]}')
 
         # 1. golden patch CI: checkout base_commit -> apply golden (merged_commit) patch -> run CI -> results_1.
         golden_patch_result = patch_verifier.verify(data, '') # results_1
-        logger.info(f'golden_patch_result: {golden_patch_result}')
+        logger.info(f'golden_patch_result: {golden_patch_result["result"]}')
         for _ in range(turns):
             # -- Stage 1: patch, test individually generation and verification.
             
             # Case 1: patch generation and verification.
             patch = patch_generator.generate(data)
             generated_patch_result = patch_verifier.verify(data, patch) # results_2
-            logger.info(f'generated_patch_result: {generated_patch_result}')
+            logger.info(f'generated_patch_result: {generated_patch_result["result"]}')
 
             # Check if generated patch is valid.
             patch_verify_result = check_generated_patch(original_patch_result,
@@ -220,7 +220,7 @@ def battle_one_turn(
             # Case 2: test generation and verification.
             test = test_generator.generate(data, patch)
             generated_test_result = test_verifier.verify(data, test) # results_3
-            logger.info(f'generated_test_result: {generated_test_result}')
+            logger.info(f'generated_test_result: {generated_test_result["result"]}')
 
             # Check if generated test is valid.
             test_verify_result = check_generated_test(golden_patch_result,
@@ -237,7 +237,7 @@ def battle_one_turn(
             try:
                 patch_with_test = merge_diffs(patch, test)
                 patch_with_test_verify_result = test_verifier.verify(data, patch_with_test) # results_4
-                logger.info(f'patch_with_test_verify_result: {patch_with_test_verify_result}')
+                logger.info(f'patch_with_test_verify_result: {patch_with_test_verify_result["result"]}')
             except Exception as e:
                 logger.info(f"Error merging diffs: {e}")
                 logger.info(f"Patch: {patch}")
@@ -276,6 +276,7 @@ def battle(
     ci_tool_name: str,
     retrieve_file_num: int = 5,
     agent_retry_times: int = 3,
+    turns: int = 1,
 ) -> Tuple[List[int], List[int]]:
     def get_roles(code_editor_lhs, code_editor_rhs):
         patch_verifier = PatchVerifier(ci_tool_name=ci_tool_name, 
@@ -309,8 +310,9 @@ def battle(
                              test_generator,
                              patch_verifier,
                              test_verifier,
-                             workdir,
-                             src_folder)
+                             turns=turns,
+                             workdir=workdir,
+                             src_folder=src_folder)
 
     if DEBUG_ONE_SHOT:
         return result, result
@@ -322,8 +324,9 @@ def battle(
                                  test_generator,
                                  patch_verifier,
                                  test_verifier,
-                                 workdir,
-                                 src_folder)
+                                 turns=turns,
+                                 workdir=workdir,
+                                 src_folder=src_folder)
     
     return result, result_rev
 
@@ -342,6 +345,7 @@ def main(
     model_rhs: str,
     retriever_index_dir: str,
     ci_tool_name: str,
+    turns: int = 1,
 ) -> Tuple[List[int], List[int]]:
     """
     Runs evaluation to battle two agents on a dataset.
@@ -399,7 +403,8 @@ def main(
                                 retriever,
                                 ci_tool_name,
                                 retrieve_file_num,
-                                agent_retry_times)
+                                agent_retry_times,
+                                turns)
 
     logger.info('------------ result ------------')
     logger.info(f'result: {result}')
@@ -463,6 +468,9 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--ci_tool_name", type=str, default='act', help="CI tool name"
+    )
+    parser.add_argument(
+        "--turns", type=int, default=1, help="Number of turns"
     )
     args = parser.parse_args()
 

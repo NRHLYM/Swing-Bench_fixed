@@ -65,11 +65,13 @@ class CargoCITool(CIToolBase):
     def _build_eval_script(self):
         instance_id = self.config.get("instance_id", "unknown")
         target_dir = os.path.join(self.config["workdir"], f"{self.config['repo'].split('/')[1]}_{instance_id}")
-        
+        if not os.path.exists(target_dir):
+            raise Exception(f'Repo {target_dir} does not exist. Please check.')
+
         script = ["#!/bin/bash", 
                   f"cd {target_dir}",
                  ]
-        
+
         script.append("git stash -u || true")
         
         if "merge_commit" in self.config and self.config["merge_commit"]:
@@ -127,6 +129,12 @@ class CargoCITool(CIToolBase):
                 test_results["failure_details"][test] = failure_details.group(1).strip()
         
         return test_results
+
+    def check_env(self):
+        if not os.path.exists(self.task.target_dir):
+            raise Exception(f'Repo {self.task.target_dir} does not exist. Please check.')
+        if not os.path.exists(self.config["workdir"]):
+            raise Exception(f'Workdir {self.config["workdir"]} does not exist. Please check.')
 
     def run_ci(self):
         """Run tests and save results to log file"""
@@ -201,7 +209,9 @@ class CargoCITool(CIToolBase):
         eval_script_path = os.path.join(script_dir, "eval.sh")
         with open(eval_script_path, 'w') as f:
             f.write('\n'.join(self.task.eval_script))
-        
+
+        self.check_env()
+
         logger.info("Executing evaluation script")
         subprocess.run(
             ['chmod', '+x', eval_script_path], 
@@ -256,7 +266,7 @@ class ActCITool(CIToolBase):
     def _build_eval_script(self):
         instance_id = self.config.get("instance_id", "unknown")
         target_dir = os.path.join(self.config["workdir"], f"{self.config['repo'].split('/')[1]}_{instance_id}")
-        
+
         script = ["#!/bin/bash", 
                   f"cd {target_dir}",
                  ]
@@ -418,9 +428,16 @@ class ActCITool(CIToolBase):
                                                         "stepID": processed_output["stepID"]})
         return processed_result
 
+    def check_env(self):
+        if not os.path.exists(self.task.target_dir):
+            raise Exception(f'Repo {self.task.target_dir} does not exist. Please check.')
+        if not os.path.exists(self.config["workdir"]):
+            raise Exception(f'Workdir {self.config["workdir"]} does not exist. Please check.')
+
     def run_ci(self, pool):
         task = self.task
         run_script("\n".join(task.env_script))
+        self.check_env()
         run_script("\n".join(task.eval_script))
 
         logger.info(f"Starting CI run for {self.config['repo']} (ID: {self.config.get('instance_id', 'unknown')})")
