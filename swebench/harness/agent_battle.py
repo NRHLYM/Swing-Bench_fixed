@@ -18,7 +18,7 @@ from swebench.harness.agent.retriever import BM25DiskRetriever, Retriever
 
 from swebench.harness.swing_utils import merge_diffs
 
-DEBUG_ONE_SHOT = True
+DEBUG_ONE_SHOT = False
 
 if platform.system() == "Linux":
     import resource
@@ -36,13 +36,13 @@ logger = logging.getLogger("agent_battle")
 
 
 def check_repo_exists(repo: str, src_folder: str) -> None:
-    logger.info(f'Checking repo existence: {repo}')
+    print(f'Checking repo existence: {repo}')
     if src_folder == '':
         return
 
     # check if the original repo is exists
     if not os.path.exists(repo):
-        logger.info(f'repo {repo} does not exist. Cloning...')
+        print(f'repo {repo} does not exist. Cloning...')
         repo_owner, repo_name = repo.split("/")
         repo_url = f"https://github.com/{repo}"
         repo_path = os.path.join(src_folder, f"{repo_owner}__{repo_name}")
@@ -194,24 +194,24 @@ def battle_one_turn(
         # clear all patch information, only need to keep the base_commit
         base_instance = construct_base_instance(data)
         original_patch_result = patch_verifier.verify(base_instance, '') # results_0
-        logger.info(f'original_patch_result: {original_patch_result["result"]}')
+        print(f'original_patch_result: {original_patch_result["result"]}')
 
         # 1. golden patch CI: checkout base_commit -> apply golden (merged_commit) patch -> run CI -> results_1.
         golden_patch_result = patch_verifier.verify(data, '') # results_1
-        logger.info(f'golden_patch_result: {golden_patch_result["result"]}')
+        print(f'golden_patch_result: {golden_patch_result["result"]}')
         for _ in range(turns):
             # -- Stage 1: patch, test individually generation and verification.
             
             # Case 1: patch generation and verification.
             patch = patch_generator.generate(data)
             generated_patch_result = patch_verifier.verify(data, patch) # results_2
-            logger.info(f'generated_patch_result: {generated_patch_result["result"]}')
+            print(f'generated_patch_result: {generated_patch_result["result"]}')
 
             # Check if generated patch is valid.
             patch_verify_result = check_generated_patch(original_patch_result,
                                                         golden_patch_result,
                                                         generated_patch_result)
-            logger.info(f'patch_verify_result: {patch_verify_result}')
+            print(f'patch_verify_result: {patch_verify_result}')
 
             if not is_valid_result(patch_verify_result):
                 patch_agent_score -= 1
@@ -220,12 +220,12 @@ def battle_one_turn(
             # Case 2: test generation and verification.
             test = test_generator.generate(data, patch)
             generated_test_result = test_verifier.verify(data, test) # results_3
-            logger.info(f'generated_test_result: {generated_test_result["result"]}')
+            print(f'generated_test_result: {generated_test_result["result"]}')
 
             # Check if generated test is valid.
             test_verify_result = check_generated_test(golden_patch_result,
                                                       generated_test_result)
-            logger.info(f'test_verify_result: {test_verify_result}')
+            print(f'test_verify_result: {test_verify_result}')
 
             if not is_valid_result(test_verify_result):
                 test_agent_score -= 1
@@ -237,17 +237,17 @@ def battle_one_turn(
             try:
                 patch_with_test = merge_diffs(patch, test)
                 patch_with_test_verify_result = test_verifier.verify(data, patch_with_test) # results_4
-                logger.info(f'patch_with_test_verify_result: {patch_with_test_verify_result["result"]}')
+                print(f'patch_with_test_verify_result: {patch_with_test_verify_result["result"]}')
             except Exception as e:
-                logger.info(f"Error merging diffs: {e}")
-                logger.info(f"Patch: {patch}")
-                logger.info(f"Test: {test}")
+                print(f"Error merging diffs: {e}")
+                print(f"Patch: {patch}")
+                print(f"Test: {test}")
                 continue
             
             # Check if patch_with_test is valid.
             patch_with_test_verify_result = check_patches(golden_patch_result,
                                                           patch_with_test_verify_result)
-            logger.info(f'patch_with_test_verify_result: {patch_with_test_verify_result}')
+            print(f'patch_with_test_verify_result: {patch_with_test_verify_result}')
             if not is_valid_result(patch_with_test_verify_result):
                 patch_agent_score += 1
             else:
@@ -255,15 +255,16 @@ def battle_one_turn(
             
             if DEBUG_ONE_SHOT:
                 break
-
+        print(f'patch generator: {patch_generator.model_name()}')
+        print(f'test generator: {test_generator.model_name()}')
+        print(f'patch_agent_score: {patch_agent_score}')
+        print(f'test_agent_score: {test_agent_score}')
+        print('-----------------------------------')
         if DEBUG_ONE_SHOT:
             break
 
-    logger.info(f'patch generator: {patch_generator.model_name()}')
-    logger.info(f'test generator: {test_generator.model_name()}')
-    logger.info(f'patch_agent_score: {patch_agent_score}')
-    logger.info(f'test_agent_score: {test_agent_score}')
-    return [patch_agent_score, test_agent_score]            
+    print('-----------------------------------------------------')
+    return [patch_agent_score, test_agent_score]
 
 
 def battle(
@@ -352,45 +353,45 @@ def main(
     """
 
     if platform.system() == "Linux":
-        logger.info(f"Setting open file limit to {open_file_limit}")
+        print(f"Setting open file limit to {open_file_limit}")
         resource.setrlimit(resource.RLIMIT_NOFILE, (open_file_limit, open_file_limit))
 
-    logger.info('------------ processing dataset ------------')
-    logger.info(f'language: {language}')
-    logger.info(f'dataset_name: {dataset_name}')
-    logger.info(f'workdir: {workdir}')
-    logger.info(f'src_folder: {src_folder}')
-    logger.info(f'open_file_limit: {open_file_limit}')
-    logger.info(f'api_key_lhs: {api_key_lhs}')
-    logger.info(f'base_url_lhs: {base_url_lhs}')
-    logger.info(f'model_lhs: {model_lhs}')
-    logger.info(f'api_key_rhs: {api_key_rhs}')
-    logger.info(f'base_url_rhs: {base_url_rhs}')
-    logger.info(f'model_rhs: {model_rhs}')
-    logger.info(f'retriever_index_dir: {retriever_index_dir}')
-    logger.info(f'ci_tool_name: {ci_tool_name}')
+    print('------------ processing dataset ------------')
+    print(f'language: {language}')
+    print(f'dataset_name: {dataset_name}')
+    print(f'workdir: {workdir}')
+    print(f'src_folder: {src_folder}')
+    print(f'open_file_limit: {open_file_limit}')
+    print(f'api_key_lhs: {api_key_lhs}')
+    print(f'base_url_lhs: {base_url_lhs}')
+    print(f'model_lhs: {model_lhs}')
+    print(f'api_key_rhs: {api_key_rhs}')
+    print(f'base_url_rhs: {base_url_rhs}')
+    print(f'model_rhs: {model_rhs}')
+    print(f'retriever_index_dir: {retriever_index_dir}')
+    print(f'ci_tool_name: {ci_tool_name}')
 
     with_ci = 'act' == ci_tool_name
 
     dataset = load_swingbench_dataset(dataset_name, language, with_ci=with_ci)
-    logger.info(f'dataset size: {len(dataset)}')
+    print(f'dataset size: {len(dataset)}')
 
     retriever = BM25DiskRetriever(index_dir=retriever_index_dir)
-    logger.info(f'retriever: {retriever}')
+    print(f'retriever: {retriever}')
 
     code_editor_lhs = RawDataCodeEditor(
         api_key=api_key_lhs,
         base_url=base_url_lhs,
         model=model_lhs
     )
-    logger.info(f'code_editor_lhs: {code_editor_lhs}')
+    print(f'code_editor_lhs: {code_editor_lhs}')
 
     code_editor_rhs = RawDataCodeEditor(
         api_key=api_key_rhs,
         base_url=base_url_rhs,
         model=model_rhs
     )
-    logger.info(f'code_editor_rhs: {code_editor_rhs}')
+    print(f'code_editor_rhs: {code_editor_rhs}')
 
     retrieve_file_num = 5
     agent_retry_times = 3
@@ -406,11 +407,12 @@ def main(
                                 agent_retry_times,
                                 turns)
 
-    logger.info('------------ result ------------')
-    logger.info(f'result: {result}')
-    logger.info(f'result_rev: {result_rev}')
+    print('------------ result ------------')
+    print(f'result: {result}')
+    print(f'result_rev: {result_rev}')
 
-    logger.info('------------ end of processing dataset ------------')
+    print('------------ end of processing dataset ------------')
+    print('\n')
 
 if __name__ == "__main__":
     parser = ArgumentParser(

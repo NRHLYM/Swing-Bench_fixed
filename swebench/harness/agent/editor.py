@@ -51,6 +51,13 @@ class RawDataCodeEditor(CodeEditorBase):
     def __init__(self, api_key: str, base_url: str, model: str):
         self.client = OpenAI(api_key=api_key, base_url=base_url)
         self.model = model
+        for each in self.client.models.list():
+            # only have one model.
+            self.max_model_len = each.max_model_len
+            break
+
+    def _get_max_model_len(self) -> int:
+        return self.max_model_len
 
     def _parse_structured_data(self, content: str) -> dict:
         pattern = r'<response>\s*(.*?)\s*</response>'
@@ -69,14 +76,19 @@ class RawDataCodeEditor(CodeEditorBase):
         function_call_args, raw_resposne = None, ""
         for i in range(retry):
             print(f'Calling API: input length: {len(input)} ; prompt length: {len(swing_patch_system_prompt) if role == "patch" else len(swing_test_system_prompt)}')
+            
+            # use word number to estimate token size.
+            word_num = len(input.split()) + len(swing_patch_system_prompt.split()) if role == "patch" else len(swing_test_system_prompt.split())
+            if word_num > self._get_max_model_len():
+                # force prune the input (raw json string!!!).
+                # TODO(wdxu): better way to constrain the input length.
+                input = input[:2 * self._get_max_model_len() - word_num]
 
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[{"role": "user", "content": input},
                         {"role": "system", "content": swing_patch_system_prompt if role == "patch" else swing_test_system_prompt}],
                 temperature=0.0,
-                max_completion_tokens=32768,
-                
             )
             function_call_args, raw_resposne = self._parse_structured_data(response.choices[0].message.content)
             if function_call_args == None:
@@ -356,11 +368,11 @@ if __name__ == "__main__":
     #     base_url="https://api.x.ai/v1",
     #     model="grok-2-latest"
     # )
-    # code_editor = RawDataCodeEditor(
-    #     api_key="no-api-key",
-    #     base_url="http://localhost:8000/v1",
-    #     model="/home/mnt/wdxu/models/Qwen2.5-Coder-7B-Instruct"
-    # )
+    code_editor = RawDataCodeEditor(
+        api_key="no-api-key",
+        base_url="http://localhost:8000/v1",
+        model="/home/mnt/wdxu/models/Qwen2.5-Coder-7B-Instruct"
+    )
     # with open("/mnt/Data/wdxu/github/Swing-Bench/tmpdata/tset_editor.py", "r") as f:
     #     content = f.read()
     #     result = code_editor.edit_code(
