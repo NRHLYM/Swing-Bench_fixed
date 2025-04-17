@@ -73,20 +73,23 @@ class RawDataCodeEditor(CodeEditorBase):
         input = origin_input
         function_call_args, raw_resposne = None, ""
         for i in range(retry):
-            # use word number to estimate token size.
-            word_num = len(input) + len(swing_patch_system_prompt) if role == "patch" else len(swing_test_system_prompt)
-            print(f'Calling API: {word_num} max model len: {self.max_model_len}')
+            # TODO(wdxu): use tokenizer to compute the total token number (if local model).
+            system_prompt = swing_patch_system_prompt if role == "patch" else swing_test_system_prompt
+            total_size = len(input) + len(system_prompt)
+            print(f'Calling API: total size {total_size}, max model len: {self.max_model_len}')
 
-            if word_num > self.max_model_len:
+            if total_size > self.max_model_len:
                 # force prune the input (raw json string!!!).
                 # TODO(wdxu): better way to constrain the input length.
-                input = input[:int(1.8 * self.max_model_len - word_num)]
-                print(f'Pruned input to {len(input)}')
+                excess = total_size - self.max_model_len
+                cut_size = min(excess, len(input))
+                print(f'Pruning input by {cut_size} characters')
+                input = input[:-cut_size]
 
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[{"role": "user", "content": input},
-                        {"role": "system", "content": swing_patch_system_prompt if role == "patch" else swing_test_system_prompt}],
+                        {"role": "system", "content": system_prompt}],
                 temperature=0.0,
             )
             function_call_args, raw_resposne = self._parse_structured_data(response.choices[0].message.content)
