@@ -51,13 +51,11 @@ class RawDataCodeEditor(CodeEditorBase):
     def __init__(self, api_key: str, base_url: str, model: str):
         self.client = OpenAI(api_key=api_key, base_url=base_url)
         self.model = model
+        self.max_model_len = 0
         for each in self.client.models.list():
             # only have one model.
-            self.max_model_len = each.max_model_len
+            self.max_model_len = int(each.max_model_len)
             break
-
-    def _get_max_model_len(self) -> int:
-        return self.max_model_len
 
     def _parse_structured_data(self, content: str) -> dict:
         pattern = r'<response>\s*(.*?)\s*</response>'
@@ -75,14 +73,15 @@ class RawDataCodeEditor(CodeEditorBase):
         input = origin_input
         function_call_args, raw_resposne = None, ""
         for i in range(retry):
-            print(f'Calling API: input length: {len(input)} ; prompt length: {len(swing_patch_system_prompt) if role == "patch" else len(swing_test_system_prompt)}')
-            
             # use word number to estimate token size.
-            word_num = len(input.split()) + len(swing_patch_system_prompt.split()) if role == "patch" else len(swing_test_system_prompt.split())
-            if word_num > self._get_max_model_len():
+            word_num = len(input) + len(swing_patch_system_prompt) if role == "patch" else len(swing_test_system_prompt)
+            print(f'Calling API: {word_num} max model len: {self.max_model_len}')
+
+            if word_num > self.max_model_len:
                 # force prune the input (raw json string!!!).
                 # TODO(wdxu): better way to constrain the input length.
-                input = input[:2 * self._get_max_model_len() - word_num]
+                input = input[:int(1.8 * self.max_model_len - word_num)]
+                print(f'Pruned input to {len(input)}')
 
             response = self.client.chat.completions.create(
                 model=self.model,
