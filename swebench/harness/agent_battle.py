@@ -2,6 +2,7 @@ import logging
 import sys
 import os
 import platform
+import subprocess
 
 from copy import deepcopy
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
@@ -34,7 +35,22 @@ logging.basicConfig(
 logger = logging.getLogger("agent_battle")
 
 
+def check_repo_exists(repo: str, src_folder: str) -> None:
+    logger.info(f'Checking repo existence: {repo}')
+    if src_folder == '':
+        return
+
+    # check if the original repo is exists
+    if not os.path.exists(repo):
+        logger.info(f'repo {repo} does not exist. Cloning...')
+        repo_owner, repo_name = repo.split("/")
+        repo_url = f"https://github.com/{repo}"
+        repo_path = os.path.join(src_folder, f"{repo_owner}__{repo_name}")
+        subprocess.run(["git", "clone", repo_url, repo_path, "--recursive"])
+
+
 def construct_base_instance(data: SwingbenchInstance) -> SwingbenchInstance:
+
     base_instance = deepcopy(data)
     base_instance.patch = ''
     base_instance.test_patch = ''
@@ -151,6 +167,8 @@ def battle_one_turn(
     patch_verifier: PatchVerifier,
     test_verifier: TestVerifier,
     turns: int = 1,
+    workdir: str = '',
+    src_folder: str = '',
 ) -> List[int]:
     """
     The logic of model battle.
@@ -170,6 +188,8 @@ def battle_one_turn(
     for data in dataset:
         # -- Prepare Stage:
         # 0. original patch CI: checkout base_commit  -> apply original (base_commit) patch -> run CI -> results_0.
+
+        check_repo_exists(data.repo, os.path.join(workdir, src_folder))
 
         # clear all patch information, only need to keep the base_commit
         base_instance = construct_base_instance(data)
@@ -288,7 +308,9 @@ def battle(
                              patch_generator,
                              test_generator,
                              patch_verifier,
-                             test_verifier)
+                             test_verifier,
+                             workdir,
+                             src_folder)
 
     if DEBUG_ONE_SHOT:
         return result, result
@@ -299,7 +321,9 @@ def battle(
                                  patch_generator,
                                  test_generator,
                                  patch_verifier,
-                                 test_verifier)
+                                 test_verifier,
+                                 workdir,
+                                 src_folder)
     
     return result, result_rev
 
@@ -392,7 +416,7 @@ if __name__ == "__main__":
     # Common args
     parser.add_argument(
         "--dataset_name",
-        default="/mnt/Data/wdxu/github/Swing-Bench/tmpdata/SwingBench",
+        default="/home/mnt/wdxu/github/SwingBench",
         type=str,
         help="Name of dataset or path to JSON file.",
     )
