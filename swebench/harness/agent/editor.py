@@ -8,6 +8,8 @@ from openai import OpenAI
 from abc import abstractmethod
 from swebench.harness.agent.prompt import swing_patch_retry_prompt, swing_test_retry_prompt, swing_patch_function, swing_test_function, swing_patch_system_prompt, swing_test_system_prompt
 
+from transformers import AutoTokenizer
+
 def remove_line_number(content: str) -> str:
     return re.sub(r"^\d+\s", "", content, flags=re.MULTILINE)
 
@@ -52,6 +54,7 @@ class RawDataCodeEditor(CodeEditorBase):
         self.client = OpenAI(api_key=api_key, base_url=base_url)
         self.model = model
         self.max_model_len = 0
+        self.tokenizer = AutoTokenizer.from_pretrained(model)
         for each in self.client.models.list():
             # only have one model.
             self.max_model_len = int(each.max_model_len)
@@ -73,18 +76,18 @@ class RawDataCodeEditor(CodeEditorBase):
         input = origin_input
         function_call_args, raw_resposne = None, ""
         for i in range(retry):
-            # TODO(wdxu): use tokenizer to compute the total token number (if local model).
             system_prompt = swing_patch_system_prompt if role == "patch" else swing_test_system_prompt
-            total_size = len(input) + len(system_prompt)
-            print(f'Calling API: total size {total_size}, max model len: {self.max_model_len}')
+            input_tokens = self.tokenizer.encode(input)
+            system_tokens = self.tokenizer.encode(system_prompt)
+            total_tokens = len(input_tokens) + len(system_tokens)
+            print(f'Calling API: total tokens {total_tokens}, max model len: {self.max_model_len}')
 
-            if total_size > self.max_model_len:
-                # force prune the input (raw json string!!!).
-                # TODO(wdxu): better way to constrain the input length.
-                excess = total_size - self.max_model_len
-                cut_size = min(excess, len(input))
-                print(f'Pruning input by {cut_size} characters')
-                input = input[:-cut_size]
+            if total_tokens > self.max_model_len:
+                excess_tokens = total_tokens - self.max_model_len
+                tokens_to_remove = min(excess_tokens, len(input_tokens))
+                truncated_tokens = input_tokens[:-tokens_to_remove]
+                input = self.tokenizer.decode(truncated_tokens)
+                print(f'Pruned input by {tokens_to_remove} tokens')
 
             response = self.client.chat.completions.create(
                 model=self.model,
