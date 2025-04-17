@@ -79,11 +79,18 @@ class RawDataCodeEditor(CodeEditorBase):
             system_prompt = swing_patch_system_prompt if role == "patch" else swing_test_system_prompt
             input_tokens = self.tokenizer.encode(input)
             system_tokens = self.tokenizer.encode(system_prompt)
-            total_tokens = len(input_tokens) + len(system_tokens)
+            
+            # Account for additional tokens in the API request format
+            # Each message has role and content markers, plus some formatting tokens
+            message_format_tokens = len(self.tokenizer.encode('{"role": "user", "content": ""}')) + \
+                                  len(self.tokenizer.encode('{"role": "system", "content": ""}'))
+            total_tokens = len(input_tokens) + len(system_tokens) + message_format_tokens
+            
             print(f'Calling API: total tokens {total_tokens}, max model len: {self.max_model_len}')
 
             if total_tokens > self.max_model_len:
-                excess_tokens = total_tokens - self.max_model_len
+                buffer_tokens = 50
+                excess_tokens = total_tokens - (self.max_model_len - buffer_tokens)
                 tokens_to_remove = min(excess_tokens, len(input_tokens))
                 truncated_tokens = input_tokens[:-tokens_to_remove]
                 input = self.tokenizer.decode(truncated_tokens)
