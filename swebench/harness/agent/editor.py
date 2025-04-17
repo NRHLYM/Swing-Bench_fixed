@@ -68,6 +68,8 @@ class RawDataCodeEditor(CodeEditorBase):
         input = origin_input
         function_call_args, raw_resposne = None, ""
         for i in range(retry):
+            print(f'Calling API: input length: {len(input)} ; prompt length: {len(swing_patch_system_prompt) if role == "patch" else len(swing_test_system_prompt)}')
+
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[{"role": "user", "content": input},

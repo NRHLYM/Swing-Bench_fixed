@@ -427,12 +427,33 @@ def merge_diffs(lhs: dict, rhs: dict) -> str:
     return result_patch
 
 
+def extract_file_list_from_diff(diff_str: str) -> list[str]:
+    """
+    Extract the modified file from a diff string
+    
+    Args:
+        diff_str (str): The diff string to extract modified files from
+        
+    Returns:
+        list[str]: List of modified file paths
+    """
+    modified_files = []
+    pattern = r'diff --git a/(.*?) b/'
+    matches = re.findall(pattern, diff_str)
+    
+    for match in matches:
+        if match not in modified_files:
+            modified_files.append(match)
+    
+    return modified_files
+
+
 if __name__ == "__main__":
     diff_1 = 'diff --git a/tests/tap_test.rs b/tests/tap_test.rs\nindex e69de29..a43a653 100644\n--- a/tests/tap_test.rs\n+++ b/tests/tap_test.rs\n@@ -0,0 +1,104 @@\n+use rustzx_core::zx::tape::tap::Tap;\n+use rustzx_core::host::LoadableAsset;\n+use std::io::Cursor;\n+\n+#[test]\n+fn test_empty_file() {\n+    let asset = Cursor::new(Vec::new());\n+    let tap = Tap::from_asset(asset).unwrap();\n+    assert!(tap.data.is_empty());\n+}\n+use rustzx_core::zx::tape::tap::Tap;\n+use rustzx_core::host::LoadableAsset;\n+use std::io::Cursor;\n+\n+#[test]\n+fn test_single_chunk_file() {\n+    let data = vec![0x01, 0x02, 0x03];\n+    let asset = Cursor::new(data.clone());\n+    let tap = Tap::from_asset(asset).unwrap();\n+    assert_eq!(tap.data, data);\n+}\n+use rustzx_core::zx::tape::tap::Tap;\n+use rustzx_core::host::LoadableAsset;\n+use std::io::Cursor;\n+\n+#[test]\n+fn test_multiple_chunks_file() {\n+    let data = vec![0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];\n+    let asset = Cursor::new(data.clone());\n+    let tap = Tap::from_asset(asset).unwrap();\n+    assert_eq!(tap.data, data);\n+}\n+use rustzx_core::zx::tape::tap::Tap;\n+use rustzx_core::host::LoadableAsset;\n+use std::io::{Cursor, Error, ErrorKind};\n+\n+struct ErrorAsset;\n+impl LoadableAsset for ErrorAsset {\n+    fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {\n+        Err(Error::new(ErrorKind::Other, "Read error"))\n+    }\n+}\n+\n+#[test]\n+fn test_read_error() {\n+    let asset = ErrorAsset;\n+    let result = Tap::from_asset(asset);\n+    assert!(result.is_err());\n+}\n+use rustzx_core::zx::tape::tap::Tap;\n+use rustzx_core::host::LoadableAsset;\n+use std::io::Cursor;\n+\n+#[test]\n+fn test_large_file() {\n+    let data = vec![0x01; 1024 * 1024];\n+    let asset = Cursor::new(data.clone());\n+    let tap = Tap::from_asset(asset).unwrap();\n+    assert_eq!(tap.data, data);\n+}\n+use rustzx_core::zx::tape::tap::Tap;\n+use rustzx_core::host::LoadableAsset;\n+use std::io::Cursor;\n+\n+#[test]\n+fn test_file_with_zero_length_chunk() {\n+    let data = vec![0x01, 0x00, 0x02];\n+    let asset = Cursor::new(data.clone());\n+    let tap = Tap::from_asset(asset).unwrap();\n+    assert_eq!(tap.data, vec![0x01, 0x02]);\n+}\n+use rustzx_core::zx::tape::tap::Tap;\n+use rustzx_core::host::LoadableAsset;\n+use std::io::Cursor;\n+\n+#[test]\n+fn test_file_with_multiple_zero_length_chunks() {\n+    let data = vec![0x01, 0x00, 0x00, 0x02];\n+    let asset = Cursor::new(data.clone());\n+    let tap = Tap::from_asset(asset).unwrap();\n+    assert_eq!(tap.data, vec![0x01, 0x02]);\n+}\n+use rustzx_core::zx::tape::tap::Tap;\n+use rustzx_core::host::LoadableAsset;\n+use std::io::Cursor;\n+\n+#[test]\n+fn test_file_with_large_zero_length_chunk() {\n+    let data = vec![0x01, 0x00; 1024 * 1024, 0x02];\n+    let asset = Cursor::new(data.clone());\n+    let tap = Tap::from_asset(asset).unwrap();\n+    assert_eq!(tap.data, vec![0x01, 0x02]);\n+}\n+use rustzx_core::zx::tape::tap::Tap;\n+use rustzx_core::host::LoadableAsset;\n+use std::io::Cursor;\n+\n+#[test]\n+fn test_file_with_large_zero_length_chunks() {\n+    let data = vec![0x01, 0x00; 1024 * 1024, 0x00, 0x00, 0x02];\n+    let asset = Cursor::new(data.clone());\n+    let tap = Tap::from_asset(asset).unwrap();\n+    assert_eq!(tap.data, vec![0x01, 0x02]);\n+}\n\\ No newline at end of file\n'
     
     diff_2 = 'diff --git a/rustzx-core/src/zx/tape/tap.rs b/rustzx-core/src/zx/tape/tap.rs\nindex feaa5e7..d03d2f2 100644\n--- a/rustzx-core/src/zx/tape/tap.rs\n+++ b/rustzx-core/src/zx/tape/tap.rs\n@@ -84,11 +84,13 @@ impl Tap {\n \n         let mut tap = Self::default();\n \n-        let mut buffer = [0u8; 1024];\n-        let mut read_bytes = asset.read(&mut buffer)?;\n-        while read_bytes != 0 {\n-            tap.data.extend_from_slice(&buffer[0..read_bytes]);\n+        let mut read_bytes;\n+        loop {\n             read_bytes = asset.read(&mut buffer)?;\n+            if read_bytes == 0 {\n+                break;\n+            }\n+            tap.data.extend_from_slice(&buffer[0..read_bytes]);\n         }\n \n         tap.block_info.clear();\n'
     
-    print(merge_two_diffs(diff_1, diff_2))
+    # print(merge_two_diffs(diff_1, diff_2))
+    # print(extract_file_list_from_diff(diff_1))
     
     # print(len(load_swingbench_dataset('/mnt/Data/wdxu/github/Swing-Bench/tmpdata/SwingBench', 'Rust', True)))
-    
