@@ -10,33 +10,31 @@ from git import Repo
 from tqdm import tqdm
 import shutil
 
-from swebench.harness.constants.swing_constants import SwingbenchInstance
+from swebench.harness.swing_utils import load_swingbench_dataset
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-def extract_repo_commits(dataset_path: str) -> Dict[str, Set[str]]:
+def extract_repo_commits(dataset_path: str, sub_dataset_identifier: str) -> Dict[str, Set[str]]:
     repo_commits: Dict[str, Set[str]] = {}
     
-    with open(dataset_path) as f:
-        for line in f:
-            instance = SwingbenchInstance(**json.loads(line))
-            if instance.repo not in repo_commits:
-                repo_commits[instance.repo] = set()
-            repo_commits[instance.repo].add(instance.base_commit)
-    
+    dataset = load_swingbench_dataset(dataset_path, sub_dataset_identifier=sub_dataset_identifier)
+    for instance in dataset:
+        if instance.repo not in repo_commits:
+            repo_commits[instance.repo] = set()
+        repo_commits[instance.repo].add(instance.base_commit)
+
     return repo_commits
 
 
-def clone_repo(repo: str, root_dir: str, token: str) -> Path:
-    repo_dir = Path(root_dir) / f"repo_{repo.replace('/', '_')}"
-    
-    if not repo_dir.exists():
-        repo_url = f"https://{token}@github.com/{repo}.git"
-        logger.info(f"Cloning {repo}")
-        Repo.clone_from(repo_url, repo_dir)
-    
-    return repo_dir
+def check_repo_exists(repo: str, repo_path: str) -> None:
+    print(f'Checking repo existence: {repo} at {repo_path}')
+    # check if the original repo is exists
+    if not os.path.exists(repo):
+        print(f'repo {repo} does not exist. Cloning...')
+        repo_owner, repo_name = repo.split("/")
+        repo_url = f"https://github.com/{repo}"
+        subprocess.run(["git", "clone", repo_url, repo_path, "--recursive"])
 
 
 def build_documents(repo_dir: Path, commit: str, document_encoding_func) -> Dict[str, str]:
@@ -48,8 +46,10 @@ def build_documents(repo_dir: Path, commit: str, document_encoding_func) -> Dict
     
     for root, _, files in os.walk(repo_dir):
         for file in files:
-            if file.startswith("."):
+            # TODO(wdxu): better way to filter all documents.
+            if file.endswith(".md") or file.endswith(".txt") or file.endswith(".rst") or file.endswith(".pdf") or file.endswith(".docx") or file.startswith("."):
                 continue
+
             file_path = Path(root) / file
             relative_path = str(file_path.relative_to(repo_dir))
             try:
@@ -110,6 +110,7 @@ def build_repo_index(
     index_root.mkdir(parents=True, exist_ok=True)
     
     repo_dir = os.path.join(repo_root_dir, repo.replace('/', '__'))
+    check_repo_exists(repo, repo_dir)
     
     for commit in tqdm(commits, desc=f"Building indexes for {repo}"):
         commit_index_path = index_root / commit
@@ -171,9 +172,11 @@ def main():
                       default="file_name_and_contents")
     parser.add_argument("--repo_root_dir", type=str, default="./testbed",
                       help="Directory to store the repos")
+    parser.add_argument("--sub_dataset_identifier", type=str, default="Rust",
+                      help="Sub dataset identifier to build the indexes")
     args = parser.parse_args()
     
-    repo_commits = extract_repo_commits(args.dataset_path)
+    repo_commits = extract_repo_commits(args.dataset_path, args.sub_dataset_identifier)
     
     python = subprocess.run("which python", shell=True, capture_output=True)
     python = python.stdout.decode("utf-8").strip()
@@ -192,8 +195,9 @@ def main():
 if __name__ == "__main__":
     """
     python swebench/prepare/swing_build_index.py \
-        --dataset_path tmpdata/Swing-Dataset/Swing-Rust/all_tasks.jsonl \
+        --dataset_path /mnt/Data/wdxu/github/SwingBench \
         --repo_root_dir ./testbed \
-        --output_dir tmpdata/indexes/
+        --output_dir tmpdata/indexes \
+        --sub_dataset_identifier Rust
     """
     main()
