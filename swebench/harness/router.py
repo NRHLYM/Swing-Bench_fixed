@@ -65,8 +65,6 @@ class CargoCITool(CIToolBase):
     def _build_eval_script(self):
         instance_id = self.config.get("instance_id", "unknown")
         target_dir = os.path.join(self.config["workdir"], f"{self.config['repo'].split('/')[1]}_{instance_id}")
-        if not os.path.exists(target_dir):
-            raise Exception(f'Repo {target_dir} does not exist. Please check.')
 
         script = ["#!/bin/bash", 
                   f"cd {target_dir}",
