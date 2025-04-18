@@ -393,7 +393,7 @@ def main(
     )
     print(f'code_editor_rhs: {code_editor_rhs}')
 
-    retrieve_file_num = 5
+    retrieve_file_num = 2
     agent_retry_times = 3
 
     result, result_rev = battle(dataset,
