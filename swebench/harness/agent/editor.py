@@ -77,25 +77,6 @@ class RawDataCodeEditor(CodeEditorBase):
         function_call_args, raw_resposne = None, ""
         for i in range(retry):
             system_prompt = swing_patch_system_prompt if role == "patch" else swing_test_system_prompt
-            input_tokens = self.tokenizer.encode(input)
-            system_tokens = self.tokenizer.encode(system_prompt)
-            
-            # Account for additional tokens in the API request format
-            # Each message has role and content markers, plus some formatting tokens
-            message_format_tokens = len(self.tokenizer.encode('{"role": "user", "content": ""}')) + \
-                                  len(self.tokenizer.encode('{"role": "system", "content": ""}'))
-            total_tokens = len(input_tokens) + len(system_tokens) + message_format_tokens
-            
-            print(f'Calling API: total tokens {total_tokens}, max model len: {self.max_model_len}')
-
-            if total_tokens > self.max_model_len:
-                buffer_tokens = 50
-                excess_tokens = total_tokens - (self.max_model_len - buffer_tokens)
-                tokens_to_remove = min(excess_tokens, len(input_tokens))
-                truncated_tokens = input_tokens[:-tokens_to_remove]
-                input = self.tokenizer.decode(truncated_tokens)
-                print(f'Pruned input by {tokens_to_remove} tokens')
-
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[{"role": "user", "content": input},
@@ -106,19 +87,40 @@ class RawDataCodeEditor(CodeEditorBase):
             if function_call_args == None:
                 input = origin_input + "\n " + \
                     (swing_patch_retry_prompt if role == "patch" else swing_test_retry_prompt) + raw_resposne
+                print(f'Failed to parse json format response. Retry {i+1} times')
                 continue
             else:
                 break
         return function_call_args
 
     def edit_code(self, issue: str, original_code: str, file_path: str, role: str, retry: int = 1, generated_patch: str = None):
+        original_code_tokens = self.tokenizer.encode(str(original_code))
+        system_prompt = swing_patch_system_prompt if role == "patch" else swing_test_system_prompt
+        system_tokens = self.tokenizer.encode(system_prompt)
+        other_content_tokens = self.tokenizer.encode(json.dumps({
+            "function": "edit_code",
+            "input": {
+                "issue": issue,
+                "file_path": file_path
+            }
+        }))
+        
+        buffer_tokens = 100
+        
+        max_available_tokens = self.max_model_len - len(system_tokens) - len(other_content_tokens) - buffer_tokens
+        
+        if len(original_code_tokens) > max_available_tokens:
+            truncated_tokens = original_code_tokens[:max_available_tokens]
+            original_code = self.tokenizer.decode(truncated_tokens)
+            print(f'Pruned original_code from {len(original_code_tokens)} to {len(truncated_tokens)} tokens')
+
         self.function = copy.deepcopy(swing_patch_function if role == "patch" else swing_test_function)
         self.function["input"] = {
-                "issue": issue,
-                "original_code": original_code,
-                "file_path": file_path,
+            "issue": issue,
+            "original_code": original_code,
+            "file_path": file_path,
         }
-        if generated_patch != None:
+        if generated_patch is not None:
             self.function["input"]["generated_patch"] = generated_patch
 
         origin_input = json.dumps(self.function)
@@ -141,13 +143,33 @@ class RawDataCodeEditor(CodeEditorBase):
             }
 
     def edit_code_batch(self, issue: str, original_code: list[dict], file_path_list: list[str], role: str, retry: int = 1, generated_patch: str = None):
+        original_code_tokens = self.tokenizer.encode(str(original_code))
+        system_prompt = swing_patch_system_prompt if role == "patch" else swing_test_system_prompt
+        system_tokens = self.tokenizer.encode(system_prompt)
+        other_content_tokens = self.tokenizer.encode(json.dumps({
+            "function": "edit_code",
+            "input": {
+                "issue": issue,
+                "file_path": file_path_list
+            }
+        }))
+        
+        buffer_tokens = 100
+        
+        max_available_tokens = self.max_model_len - len(system_tokens) - len(other_content_tokens) - buffer_tokens
+        
+        if len(original_code_tokens) > max_available_tokens:
+            truncated_tokens = original_code_tokens[:max_available_tokens]
+            original_code = self.tokenizer.decode(truncated_tokens)
+            print(f'Pruned original_code from {len(original_code_tokens)} to {len(truncated_tokens)} tokens')
+
         self.function = copy.deepcopy(swing_patch_function if role == "patch" else swing_test_function)
         self.function["input"] = {
-                "issue": issue,
-                "original_code": original_code,
-                "file_path": file_path_list,
+            "issue": issue,
+            "original_code": original_code,
+            "file_path": file_path_list,
         }
-        if generated_patch != None:
+        if generated_patch is not None:
             self.function["input"]["generated_patch"] = generated_patch
 
         origin_input = json.dumps(self.function)
