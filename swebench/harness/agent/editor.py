@@ -85,8 +85,8 @@ class RawDataCodeEditor(CodeEditorBase):
             )
             function_call_args, raw_resposne = self._parse_structured_data(response.choices[0].message.content)
             if function_call_args == None:
-                input = origin_input + "\n " + \
-                    (swing_patch_retry_prompt if role == "patch" else swing_test_retry_prompt) + raw_resposne
+                # input = origin_input + "\n " + \
+                #     (swing_patch_retry_prompt if role == "patch" else swing_test_retry_prompt) + raw_resposne
                 print(f'Failed to parse json format response. Retry {i+1} times')
                 continue
             else:
