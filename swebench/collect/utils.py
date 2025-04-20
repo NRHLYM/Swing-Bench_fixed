@@ -408,17 +408,14 @@ def extract_problem_statement_and_hints_django(
 
 
 def extract_ci_name_list(pull: dict) -> list[str]:
-    # TODO(wdxu): adapt CIs which are not configured in .github/workflow/
-    print('processing {} {}'.format(pull['base']['repo']['full_name'], pull['number']))
     checks_info_ptn = 'https://github.com/{}/pull/{}/checks'
     checks_url = checks_info_ptn.format(pull['base']['repo']['full_name'], pull['number'])
-    print(checks_url)
+    print('Processing {} {} at {}'.format(pull['base']['repo']['full_name'], pull['number'], checks_url))
     response = requests.get(checks_url)
     if response.status_code == 200:
         runs_url_prefix = '{}/actions/runs/'.format(pull['base']['repo']['full_name'])
         runs_url_ptn = re.compile(rf'{runs_url_prefix}(\d+)')
         matches = runs_url_ptn.findall(response.text)
-        # print(matches)
         ci_names = []
         for num in list(set(matches)):
             run_url = 'https://github.com/{}/actions/runs/{}/workflow'.format(pull['base']['repo']['full_name'], num)

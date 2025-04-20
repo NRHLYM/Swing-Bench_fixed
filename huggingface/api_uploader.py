@@ -3,21 +3,6 @@ from datasets import Dataset, DatasetDict, load_dataset
 import os
 import json
 
-def download():
-    if not os.path.exists("datasets/"):
-        os.mkdir("datasets/")
-
-    dataset = load_dataset("princeton-nlp/SWE-bench")
-
-    with open("datasets/swebench-train.json", "w") as f:
-        json.dump([d for d in dataset["train"]], f, indent=2)
-        
-    with open("datasets/swebench-dev.json", "w") as f:
-        json.dump([d for d in dataset["dev"]], f, indent=2)
-        
-    with open("datasets/swebench-test.json", "w") as f:
-        json.dump([d for d in dataset["test"]], f, indent=2)
-
 def upload_to_huggingface(dataset_name, file_split_mapping, token):
     """
     Uploads multiple dataset files to the Hugging Face Hub as splits under dataset_name.

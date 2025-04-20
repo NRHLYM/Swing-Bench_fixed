@@ -1,3 +1,4 @@
+import argparse
 import jsonlines
 import re
 import asyncio
@@ -7,43 +8,10 @@ from datetime import datetime
 import aiohttp
 import itertools
 
-# awesome-rust
-
-# input_file = "awesome-rust.md"
-# output_file = "awesome-rust.json"
-# with open(input_file, "r", encoding="utf-8", errors="replace") as f:
-#     repo_list = f.readlines()
-# GITHUB_REPO_PATTERN = re.compile(r"\[(.*?)\]\(https://github\.com/([\w\-_]+)/([\w\-_]+)\)")
-
-# repos = []
-# for line in repo_list:
-#     match = GITHUB_REPO_PATTERN.search(line)
-#     if match:
-#         name, owner, repo = match.groups()
-#         repos.append((name, owner, repo))
-
-output_file = "crateio.jsonl"
-pattern = r"https?://github\.com/([^/]+)/([^/\s]+)"
-repos = []
-with jsonlines.open("crates_data_20250302_170918.jsonl", "r") as f:
-    for d in f:
-        url = d["repository"]
-        if url:
-            match = re.match(pattern, url)
-            if match:
-                repo = match.group(2)
-                owner = match.group(1)
-                # print(f"Repository: {repo}")
-                # print(f"Owner: {owner}")
-                repos.append((repo, owner, repo))
-repos = set(repos)
-print(f'Length of repos: {len(repos)}')
-
-# tokens = os.getenv("GH_TOKENS", "").split(",")
-tokens = ["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"]
+tokens = os.getenv("GITHUB_TOKENS", "").split(",")
 tokens = [t.strip() for t in tokens if t.strip()]
 if not tokens:
-    raise ValueError("GH_TOKENS environment variable is empty or not set.")
+    raise ValueError("GITHUB_TOKENS environment variable is empty or not set.")
 token_cycle = itertools.cycle(tokens)
 def get_token():
     return next(token_cycle)
@@ -72,7 +40,7 @@ async def fetch_repo_info(session, owner, repo):
     except:
         return None
 
-async def fetch_all_repos():
+async def fetch_all_repos(repos):
     async with aiohttp.ClientSession() as session:
         tasks = [fetch_repo_info(session, owner, repo) for _, owner, repo in repos]
         results = await asyncio.gather(*tasks)        
@@ -83,5 +51,10 @@ async def fetch_all_repos():
         return valid_results
 
 if __name__ == "__main__":
-    results = asyncio.run(fetch_all_repos())
-    # print(json.dumps(results, indent=2))
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--input", type=str, required=True, help="Input file path")
+    parser.add_argument("--output", type=str, required=True, help="Output file path")
+    args = parser.parse_args()
+    with jsonlines.open(args.input, "r") as f:
+        repos = [d["repository"] for d in f]
+    results = asyncio.run(fetch_all_repos(repos))

@@ -10,7 +10,7 @@ from bs4 import BeautifulSoup
 def extract_ci_name_list(pull: dict) -> list[str]:
     # TODO(wdxu): adapt CIs which are not configured in .github/workflow/
     print('processing {} {}'.format(pull['base']['repo']['full_name'], pull['number']))
-    checks_info_ptn = 'https://github.com.psmoe.com/{}/pull/{}/checks'
+    checks_info_ptn = 'https://github.com/{}/pull/{}/checks'
     checks_url = checks_info_ptn.format(pull['base']['repo']['full_name'], pull['number'])
     print(checks_url)
     response = requests.get(checks_url)
@@ -21,7 +21,7 @@ def extract_ci_name_list(pull: dict) -> list[str]:
         # print(matches)
         ci_names = []
         for num in list(set(matches)):
-            run_url = 'https://github.com.psmoe.com/{}/actions/runs/{}/workflow'.format(pull['base']['repo']['full_name'], num)
+            run_url = 'https://github.com/{}/actions/runs/{}/workflow'.format(pull['base']['repo']['full_name'], num)
             run_response = requests.get(run_url)
             if run_response.status_code == 200:
                 run_soup = BeautifulSoup(run_response.text, "html.parser")
