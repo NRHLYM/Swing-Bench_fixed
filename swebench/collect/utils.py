@@ -9,8 +9,10 @@ import time
 from bs4 import BeautifulSoup
 from ghapi.core import GhApi
 from fastcore.net import HTTP404NotFoundError, HTTP403ForbiddenError
-from typing import Callable, Iterator, Optional
+from typing import Callable, Iterator, Optional, List, Tuple, Optional, Dict
 from unidiff import PatchSet
+from urllib3.util.retry import Retry
+from requests.adapters import HTTPAdapter
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -452,6 +454,200 @@ def extract_ci_name_list(pull: dict) -> list[str]:
         return list(set(ci_names))
     return []
 
+# Create a session with retry capability
+session = requests.Session()
+retry_strategy = Retry(
+    total=3,
+    backoff_factor=0.5,
+    status_forcelist=[429, 500, 502, 503, 504],
+    allowed_methods=["GET"]
+)
+adapter = HTTPAdapter(max_retries=retry_strategy)
+session.mount("https://", adapter)
+session.mount("http://", adapter)
+
+
+def make_github_request(url: str, params: Optional[Dict] = None, token: Optional[str] = None) -> Dict:
+    """Send GET request to GitHub API
+    
+    Args:
+        url: API endpoint URL
+        params: Request parameters
+        token: GitHub API token
+        
+    Returns:
+        API response JSON
+    """
+    headers = {
+        "Accept": "application/vnd.github.v3+json",
+        "User-Agent": "GitHub-CI-Extractor"
+    }
+    if token:
+        headers["Authorization"] = f"token {token}"
+        
+    try:
+        response = session.get(url, headers=headers, params=params)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.HTTPError as e:
+        if response.status_code == 403 and "rate limit" in response.text.lower():
+            reset_time = int(response.headers.get("X-RateLimit-Reset", 0))
+            wait_time = max(0, reset_time - time.time()) + 1
+            logger.warning(f"Rate limit exceeded. Waiting {wait_time:.1f} seconds")
+            time.sleep(wait_time)
+            return make_github_request(url, params, token)  # Retry
+        else:
+            logger.error(f"HTTP error: {e}")
+            return {}
+    except Exception as e:
+        logger.error(f"Request failed: {e}")
+        return {}
+
+
+def get_html_page(url: str, token: Optional[str] = None) -> str:
+    """Get HTML page content
+    
+    Args:
+        url: Page URL
+        token: GitHub API token
+        
+    Returns:
+        HTML content
+    """
+    headers = {
+        "Accept": "text/html",
+        "User-Agent": "GitHub-CI-Extractor"
+    }
+    if token:
+        headers["Authorization"] = f"token {token}"
+        
+    try:
+        response = session.get(url, headers=headers)
+        response.raise_for_status()
+        return response.text
+    except Exception as e:
+        logger.error(f"Failed to fetch HTML from {url}: {e}")
+        return ""
+
+
+def find_workflow_jobs(workflow_html: str, run_id: str) -> List[Tuple[str, str]]:
+    """Extract workflow jobs from workflow HTML
+    
+    Args:
+        workflow_html: Workflow page HTML content
+        run_id: Run ID for reference
+        
+    Returns:
+        List of (job_name, workflow_file) tuples
+    """
+    ci_names = []
+    try:
+        soup = BeautifulSoup(workflow_html, "html.parser")
+        
+        # Get workflow file path
+        yml = None
+        yml_tables = soup.find_all('table')
+        if yml_tables and len(yml_tables) > 0:
+            yml = yml_tables[0].get('data-tagsearch-path')
+        
+        if not yml:
+            return []
+        
+        # Method 1: Find jobs between summary and usage sections
+        action_list = soup.find_all("a", class_="ActionListContent--visual16")
+        
+        summary_index = None
+        usage_index = None
+        
+        for i, item in enumerate(action_list):
+            href = item.get('href', '')
+            if '/actions/runs/' in href and href.endswith(run_id):
+                summary_index = i
+            elif href.endswith('/usage'):
+                usage_index = i
+        
+        if summary_index is not None and usage_index is not None and summary_index < usage_index:
+            job_items = action_list[summary_index + 1:usage_index]
+            for item in job_items:
+                svg = item.find('svg', attrs={'aria-label': True})
+                if svg:
+                    label_span = item.find('span', class_='ActionListItem-label')
+                    if label_span:
+                        job_name = label_span.get_text(strip=True)
+                        if job_name:
+                            ci_names.append((job_name, yml))
+        
+        # Method 2: Alternative approach - find by job label classes
+        if not ci_names:
+            job_labels = soup.find_all('span', class_='ActionListItem-label')
+            for label in job_labels:
+                job_name = label.get_text(strip=True)
+                if job_name and job_name.lower() not in ['summary', 'usage', 'artifacts']:
+                    ci_names.append((job_name, yml))
+        
+        # Method 3: Look for job sections
+        if not ci_names:
+            job_sections = soup.find_all(class_=lambda c: c and ('job-' in c or 'workflow-job' in c))
+            for section in job_sections:
+                name_elem = section.find(['span', 'div', 'h3'], class_=lambda c: c and ('name' in c or 'title' in c))
+                if name_elem:
+                    job_name = name_elem.get_text(strip=True)
+                    if job_name:
+                        ci_names.append((job_name, yml))
+                        
+    except Exception as e:
+        logger.warning(f"Error extracting jobs from workflow HTML: {e}")
+    
+    return ci_names
+
+# TODO(hrwang): check which version to use
+# def extract_ci_name_list(pull: dict) -> List[Tuple[str, str]]:
+#     """Extract CI job names and workflow files from a PR
+    
+#     Args:
+#         pull: Pull Request data dictionary
+    
+#     Returns:
+#         List of tuples containing (ci_job_name, workflow_file_path)
+#     """
+#     try:
+#         repo_full_name = pull['base']['repo']['full_name']
+#         pr_number = pull['number']
+#     except KeyError as e:
+#         logger.error(f"Invalid input format, missing key: {e}")
+#         return []
+    
+#     checks_url = f"https://github.com/{repo_full_name}/pull/{pr_number}/checks"
+#     print(f"Processing {repo_full_name} {pr_number} at {checks_url}")
+    
+#     # Get checks page
+#     checks_html = get_html_page(checks_url)
+    
+#     if not checks_html:
+#         logger.error(f"Failed to fetch checks page")
+#         return []
+    
+#     # Find workflow run IDs
+#     runs_url_prefix = f'{repo_full_name}/actions/runs/'
+#     runs_url_ptn = re.compile(rf'{runs_url_prefix}(\d+)')
+#     matches = runs_url_ptn.findall(checks_html)
+    
+#     all_ci_names = []
+    
+#     # Process each unique run ID
+#     for run_id in set(matches):
+#         workflow_url = f"https://github.com/{repo_full_name}/actions/runs/{run_id}/workflow"
+#         workflow_html = get_html_page(workflow_url)
+        
+#         if not workflow_html:
+#             continue
+            
+#         # Extract jobs from this workflow
+#         ci_names = find_workflow_jobs(workflow_html, run_id)
+#         all_ci_names.extend(ci_names)
+    
+#     # Return unique CI names
+#     return list(set(all_ci_names))
 
 if __name__ == '__main__':
     pull = dict()

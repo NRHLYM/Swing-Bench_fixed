@@ -97,6 +97,3 @@ def main():
             if result:
                 with jsonlines.open("tasks_with_ci_rest_0318.jsonl", "a") as f:
                     f.write(result)
-
-if __name__ == "__main__":
-    main()

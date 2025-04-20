@@ -73,7 +73,7 @@ class GitHubCrawler:
         }
     
     async def _save_progress(self) -> None:
-        """保存进度文件，增加错误处理"""
+        """Save progress file, with error handling"""
         try:
             self.progress["last_updated"] = time.time()
             async with aiofiles.open(self.progress_file, 'w') as f:
@@ -152,7 +152,6 @@ class GitHubCrawler:
             return {}
     
     async def _save_repository_to_index(self, language_dir: str, repo_data: Dict) -> None:
-        """单独更新仓库索引文件，这样每克隆一个仓库就更新一次索引"""
         index_file_path = os.path.join(language_dir, "repositories.jsonl")
         try:
             async with aiofiles.open(index_file_path, 'a') as jsonl_file:
