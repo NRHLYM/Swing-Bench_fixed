@@ -314,29 +314,48 @@ class ActCITool(CIToolBase):
         os.system("rm " + act_list_path)
                     
     def _process_act_output(self, stdout):
-        results = []
-        for line in stdout.split('\n'):
+        # result format:
+        # for normal result
+        # result = {
+        #     'job': data.get('job', ''), unique key
+        #     'jobID': data.get('jobID', ''),
+        #     'steps': [
+        #       ('step', 'stage', 'stepResult'),
+        #       ...
+        #     ]
+        #     'jobResult': data.get('jobResult', ''),
+        # }
+        # for unit test
+        results = {}
+        stdout_list = stdout.split('\n')
+        for line in stdout_list:
             if not line.strip():
                 continue
             try:
                 data = json.loads(line)
-                result = {
-                    'dryrun': data.get('dryrun', ''),
-                    'job': data.get('job', ''),
-                    'jobID': data.get('jobID', ''),
-                    'level': data.get('level', ''),
-                    'matrix': data.get('matrix', ''),
-                    'msg': data.get('msg', ''),
-                    'raw_output': data.get('raw_output', ''),
-                    'stage': data.get('stage', ''),
-                    'step': data.get('step', ''),
-                    'stepID': data.get('stepID', ''),
-                    'stepResult': data.get('stepResult', ''),
-                    'time': data.get('time', ''),
-                }
-                results.append(result)
+                job = data.get('job')
+                if job not in results.keys():
+                    results[job] = {
+                        'job': job,
+                        'jobID': data.get('jobID', ''),
+                        'steps': [],
+                        'jobResult': None,
+                    }
             except json.JSONDecodeError:
                 continue
+        
+        for data in stdout_list:
+            if not data.strip():
+                continue
+            data = json.loads(data)
+            step = data.get('step', None)
+            step_result = data.get('stepResult', None)
+            job_result = data.get('jobResult', None)
+            if step and step_result:
+                results[data.get('job')]['steps'].append((step, data.get('stage', None), step_result))
+            if job_result:
+                results[data.get('job')]['jobResult'] = job_result
+
         return results
 
     def _run_act_with_lock(self, ci, target_dir, order, pool):
@@ -389,6 +408,40 @@ class ActCITool(CIToolBase):
             self.result_list.append(result)
             self.result_lock.release()
 
+    def _run_act_without_lock(self, ci, target_dir):
+        value = self.ci_dict.get(ci[0])
+        if value is not None:
+            path = self.config["output_dir"] + "/" + \
+                   self.task.instance_id + "_"  + \
+                   value + "_output.json"
+            logger.info("Run Act with command: " + "act " + "-j " + value + " " \
+                                            "-P " + "ubuntu-latest=catthehacker/ubuntu:full-latest " + \
+                                            "-W " + os.path.join(target_dir, ci[1]) + " " +\
+                                            "--json")
+
+            process = subprocess.Popen(["act", "-j", value,
+                                        "-P", "ubuntu-latest=catthehacker/ubuntu:full-latest",
+                                        "-W", os.path.join(target_dir, ci[1]),
+                                        "--json"], 
+                                    cwd=target_dir,
+                                    stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE,
+                                    text=True)
+            stdout, stderr = process.communicate()
+            result = {
+                "stdout": stdout,
+                "stderr": stderr,
+                "returncode": process.returncode,
+                "processed_output": self._process_act_output(stdout)
+            }
+            result_path = os.path.join(target_dir, path) 
+            if not os.path.exists(os.path.dirname(result_path)):
+                os.makedirs(os.path.dirname(result_path))
+            with open(result_path, 'w', encoding='utf-8') as f:
+                json.dump(result, f, ensure_ascii=False, indent=4)
+
+            self.result_list.append(result)
+
     @staticmethod
     def _process_result(result_list: list[str]) -> dict:
         processed_result = {}
@@ -398,32 +451,29 @@ class ActCITool(CIToolBase):
                 result_json = json.loads(result)
             else:
                 result_json = result
-            for processed_output in result_json["processed_output"]:
-                job_id = processed_output["jobID"]
-                if job_id not in processed_result:
-                    processed_result[job_id] = {
-                        "returncode": result_json["returncode"],
+
+            for job in result_json["processed_output"].keys():
+                if job not in processed_result.keys():
+                    processed_result[job] = {
+                        "returncode": result_json["processed_output"][job]["jobResult"],
                         "test_results": {
                             "passed": [],
                             "failed": [],
                             "ignored": [],
                         }
                     }
-                if processed_output["stepResult"] == "success" and processed_output["stage"] != "":
-                    processed_result[job_id]["test_results"]["passed"].append({
-                                                       "stage": processed_output["stage"],
-                                                       "step": processed_output["step"],
-                                                       "stepID": processed_output["stepID"]})
-                elif processed_output["stepResult"] == "failure":
-                    processed_result[job_id]["test_results"]["failed"].append({
-                                                       "stage": processed_output["stage"],
-                                                       "step": processed_output["step"],
-                                                       "stepID": processed_output["stepID"]})
-                elif processed_output["stepResult"] == "skipped":
-                    processed_result[job_id]["test_results"]["ignored"].append({
-                                                        "stage": processed_output["stage"],
-                                                        "step": processed_output["step"],
-                                                        "stepID": processed_output["stepID"]})
+                    for item in result_json["processed_output"][job]["steps"]:
+                        if item[2] == "success":
+                            temp = processed_result[job]["test_results"]["passed"]
+                        elif item[2] == "failure":
+                            temp = processed_result[job]["test_results"]["failed"]
+                        elif item[2] == "skipped":
+                            temp = processed_result[job]["test_results"]["ignored"]
+                        temp.append({
+                                "step": item[0],
+                                "stage": item[1]
+                            }
+                        )
         return processed_result
 
     def check_env(self):
@@ -452,6 +502,9 @@ class ActCITool(CIToolBase):
 
         for thread in threads:
             thread.join()
+
+        # for ci in self.config["ci_name_list"]:
+        #     self._run_act_without_lock(ci, task.target_dir)
 
         # os.system("rm -rf " + task.target_dir)
         result = ActCITool._process_result(self.result_list)
@@ -513,19 +566,19 @@ if __name__ == '__main__':
     #                  "workdir": os.environ["SWING_TESTBED_PATH"], \
     #                  "ci_name_list": [["test", ".github/workflows/main.yml"]], \
     #                  "output_dir": os.environ["SWING_TESTBED_PATH"]})
-    act = ActCITool({"act_path": "/mnt/Data/wdxu/github/act/bin/act",
-                     "instance_id": "rustzx__rustzx-84",
+    act = ActCITool({"act_path": "/usr/local/bin/act",
+                     "instance_id": "",
                      "repo": "rustzx/rustzx",
-                     "base_commit": "53cfe0985162dc3e7f6f64fee77a67e3c08a1b9a",
-                     "merge_commit": "53cfe0985162dc3e7f6f64fee77a67e3c08a1b9a",
+                     "base_commit": "",
+                     "merge_commit": "",
                      "patch": "",
-                     "src_folder": "/mnt/Data/wdxu/github/Swing-Bench/testbed",
+                     "src_folder": "/home",
                      "output_dir": "logs",
-                     "workdir": "/mnt/Data/wdxu/github/Swing-Bench/testbed/rustzx__rustzx-84_0842a35c-2520-48a4-93c5-d320350242a6",
-                     "apply_patch": True,
+                     "workdir": "/home/testbed",
+                     "apply_patch": False,
                      "ci_name_list": [['build', '.github/workflows/ci.yml'], ['unit_tests', '.github/workflows/test-rustzx-z80.yml']]})
 
     result = act.run_ci(port_pool)
     print(result)
-    # with open('./result.log', 'w') as f:
-    #     f.write(str(result))
+    with open('./result.log', 'w') as f:
+        f.write(str(result))
