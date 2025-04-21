@@ -61,6 +61,7 @@ class PatchGenerator(Generator):
         """
         Generate a patch for the given Swingbench instance.
         """
+        print("Retrieving data files from retriever to data:{}".format(data))
         code_snippet = self.retriever.retrieve(data, k=self.retrieve_file_num)
         file_path_list = [hit["docid"] for hit in code_snippet["hits"]]
         code_snippet_list = [hit["contents"] for hit in code_snippet["hits"]]

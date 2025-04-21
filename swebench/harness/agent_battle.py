@@ -433,9 +433,9 @@ if __name__ == "__main__":
     )
 
     # default models
-    base_url = "http://147.8.181.248:8000/v1/"
-    api_key = "no-api-key"
-    model = "/home/mnt/wdxu/models/Qwen2.5-Coder-7B-Instruct"
+    base_url = "http://localhost:8000/v1" #'https://api.ai-gaochao.cn/v1' #"http://147.8.181.248:8000/v1/"
+    api_key = "no-api-key" #'sk-mbJUXSh916hxnYKO371cD8809919451092B9E170D0544687'#"no-api-key"
+    model = "Qwen/Qwen2.5-Coder-7B-Instruct" #"/home/mnt/wdxu/models/Qwen2.5-Coder-7B-Instruct"
 
     # Local execution args
     parser.add_argument(
@@ -443,6 +443,9 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--src_folder", type=str, default=os.environ["SWING_REPOS_DIR_PATH"], help="Source code folder"
+    )
+    parser.add_argument(
+        "--retriever_index_dir", type=str, default=os.environ["SWING_INDEXES_PATH"], help="Retriever index directory"
     )
     parser.add_argument(
         "--open_file_limit", type=int, default=4096, help="Open file limit"
@@ -465,9 +468,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--model_rhs", type=str, default=model, help="Model for rhs"
     )
-    parser.add_argument(
-        "--retriever_index_dir", type=str, default=os.environ["SWING_INDEXES_PATH"], help="Retriever index directory"
-    )
+
     parser.add_argument(
         "--ci_tool_name", type=str, default='act', help="CI tool name"
     )

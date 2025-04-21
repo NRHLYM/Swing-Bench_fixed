@@ -58,6 +58,9 @@ class RawDataCodeEditor(CodeEditorBase):
         self.tokenizer = AutoTokenizer.from_pretrained(model)
         for each in self.client.models.list():
             # only have one model.
+            print("--------------------------------0")
+            print(each)
+            print("--------------------------------1")
             self.max_model_len = int(each.max_model_len)
             break
 
