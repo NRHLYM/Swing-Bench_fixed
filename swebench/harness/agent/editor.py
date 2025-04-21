@@ -1,5 +1,6 @@
 import tempfile
 import json
+import json_repair
 import os
 import re
 import subprocess
@@ -70,7 +71,12 @@ class RawDataCodeEditor(CodeEditorBase):
             json_result = json.loads(json_content)
             return json_result, ""
         except json.JSONDecodeError:
-            return None, json_content
+            print('Trying to repair json.')
+            repaired_json = json_repair.repair(json_content)
+            if repaired_json is '':
+                return None, json_content
+            else:
+                return repaired_json, ""
 
     def _call_api(self, origin_input: str, role: str, retry: int = 1):
         input = origin_input
@@ -83,7 +89,7 @@ class RawDataCodeEditor(CodeEditorBase):
                         {"role": "system", "content": system_prompt}],
                 temperature=0.0,
             )
-            function_call_args, raw_resposne = self._parse_structured_data(response.choices[0].message.content)
+            function_call_args, _ = self._parse_structured_data(response.choices[0].message.content)
             if function_call_args == None:
                 # input = origin_input + "\n " + \
                 #     (swing_patch_retry_prompt if role == "patch" else swing_test_retry_prompt) + raw_resposne
