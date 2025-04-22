@@ -1,7 +1,7 @@
 test_repo/
 testbed/
 swebench.egg-info/
-tasks_with_ci_final.jsonl
+tasks_with_ci.jsonl
 tasks_with_ci_final.json
 report/
 __pycache__

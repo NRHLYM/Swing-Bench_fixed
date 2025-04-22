@@ -341,12 +341,15 @@ def main(
     api_key_lhs: str,
     base_url_lhs: str,
     model_lhs: str,
+    tok_model_lhs: str,
     api_key_rhs: str,
     base_url_rhs: str,
     model_rhs: str,
+    tok_model_rhs: str,
     retriever_index_dir: str,
     ci_tool_name: str,
     turns: int = 1,
+    split: str = "train",
 ) -> Tuple[List[int], List[int]]:
     """
     Runs evaluation to battle two agents on a dataset.
@@ -365,15 +368,17 @@ def main(
     print(f'api_key_lhs: {api_key_lhs}')
     print(f'base_url_lhs: {base_url_lhs}')
     print(f'model_lhs: {model_lhs}')
+    print(f'tok_model_lhs: {tok_model_lhs}')
     print(f'api_key_rhs: {api_key_rhs}')
     print(f'base_url_rhs: {base_url_rhs}')
     print(f'model_rhs: {model_rhs}')
+    print(f'tok_model_rhs: {tok_model_rhs}')
     print(f'retriever_index_dir: {retriever_index_dir}')
     print(f'ci_tool_name: {ci_tool_name}')
 
     with_ci = 'act' == ci_tool_name
 
-    dataset = load_swingbench_dataset(dataset_name, language, with_ci=with_ci)
+    dataset = load_swingbench_dataset(dataset_name, language, split=split, with_ci=with_ci)
     print(f'dataset size: {len(dataset)}')
 
     retriever = BM25DiskRetriever(index_dir=retriever_index_dir)
@@ -382,14 +387,16 @@ def main(
     code_editor_lhs = RawDataCodeEditor(
         api_key=api_key_lhs,
         base_url=base_url_lhs,
-        model=model_lhs
+        model=model_lhs,
+        tok_model=tok_model_lhs
     )
     print(f'code_editor_lhs: {code_editor_lhs}')
 
     code_editor_rhs = RawDataCodeEditor(
         api_key=api_key_rhs,
         base_url=base_url_rhs,
-        model=model_rhs
+        model=model_rhs,
+        tok_model=tok_model_rhs
     )
     print(f'code_editor_rhs: {code_editor_rhs}')
 
@@ -433,10 +440,9 @@ if __name__ == "__main__":
     )
 
     # default models
-    base_url = "http://localhost:8000/v1" #'https://api.ai-gaochao.cn/v1' #"http://147.8.181.248:8000/v1/"
-    api_key = "no-api-key" #'sk-mbJUXSh916hxnYKO371cD8809919451092B9E170D0544687'#"no-api-key"
-    model = "Qwen/Qwen2.5-Coder-7B-Instruct" #"/home/mnt/wdxu/models/Qwen2.5-Coder-7B-Instruct"
-
+    base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1/" #'https://api.ai-gaochao.cn/v1' #"http://147.8.181.248:8000/v1/"#'https://dashscope.aliyuncs.com/compatible-mode/v1/'
+    api_key = "sk-826b874003eb4f309bd65c7a6f0f79b5" #'sk-mbJUXSh916hxnYKO371cD8809919451092B9E170D0544687'#"no-api-key"#'sk-826b874003eb4f309bd65c7a6f0f79b5'
+    model = "qwen-plus" #"/home/mnt/wdxu/models/Qwen2.5-Coder-7B-Instruct"#'qwen-plus'
     # Local execution args
     parser.add_argument(
         "--workdir", type=str, default=os.environ["SWING_TESTBED_PATH"], help="Work directory"
@@ -474,6 +480,15 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--turns", type=int, default=1, help="Number of turns"
+    )
+    parser.add_argument(
+        "--split", type=str, default=None, help="Split"
+    )
+    parser.add_argument(
+        "--tok_model_lhs", type=str, default=None, help="Tokenizer model for lhs"
+    )
+    parser.add_argument(
+        "--tok_model_rhs", type=str, default=None, help="Tokenizer model for rhs"
     )
     args = parser.parse_args()
 

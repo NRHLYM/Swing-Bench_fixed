@@ -31,13 +31,13 @@ def search_instance(
     )
     
     if not index_path.exists():
-        logger.error(f"Index not found for {repo} at commit {commit}")
+        logger.error(f"Index at {index_path} not found for {repo} at commit {commit}")
         return None
         
     try:
         searcher = LuceneSearcher(index_path.as_posix())
         cutoff = len(query)
-        
+        print(f"[DEBUG] cutoff: {cutoff}")
         while True:
             try:
                 hits = searcher.search(
@@ -45,6 +45,7 @@ def search_instance(
                     k=k,
                     remove_dups=True,
                 )
+                print(f"[DEBUG] hits: {hits}")
                 break
             except Exception as e:
                 if "maxClauseCount" in str(e):

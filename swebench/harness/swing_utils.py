@@ -157,40 +157,23 @@ def run_tasks(tasks, port_wait_timeout=None):
     pbar.close()
     return succeeded, failed
 
-def load_swingbench_dataset(
-    dataset_name: str
-) -> list[SwingbenchInstance]:
-    """
-    Load Swingbench dataset from Hugging Face Datasets or local .json/.jsonl file
-    """
-    logger.info(f"Loading dataset {dataset_name}")
-
-    # Load from local .json/.jsonl file
-    if dataset_name.endswith(".json") or dataset_name.endswith(".jsonl"):
-        with open(dataset_name, "r") as f:
-            dataset = [json.loads(line) for line in f]
-    else:
-        # Load from Hugging Face Datasets
-        if (Path(dataset_name) / "dataset_info.json").exists():
-            dataset = load_from_disk(Path(dataset_name))
-        else:
-            dataset = load_dataset(dataset_name)
-
-    return [SwingbenchInstance(**instance) for instance in dataset]
-
 
 def load_swingbench_dataset(
     dataset_name: str,
     sub_dataset_identifier: str,
+    split: str = None,
     with_ci: bool = False
 ) -> list[SwingbenchInstance]:
-    dataset = load_dataset(dataset_name, sub_dataset_identifier)
+    dataset = load_dataset(dataset_name, sub_dataset_identifier, split=split)
     instance_list = []
-    for instance in dataset[sub_dataset_identifier]:
-        if with_ci and not instance['ci_name_list']:
-            continue
-        instance_list.append(SwingbenchInstance(**instance))
-
+    if split is None:
+        identifier = sub_dataset_identifier
+        for instance in dataset[identifier]:
+            if with_ci and not instance['ci_name_list']:
+                continue
+            instance_list.append(SwingbenchInstance(**instance))
+    else:
+        instance_list = [SwingbenchInstance(**instance) for instance in dataset]
     return instance_list
 
 

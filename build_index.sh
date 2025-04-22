@@ -1,2 +1,6 @@
 #!/bin/bash
-python swebench/prepare/swing_build_index.py --dataset_path /home/mnt/xiongjing/SwingBench --repo_root_dir /home/xiongjing/resource_dir/SwingBench/tmpdata/testbed --output_dir /home/xiongjing/resource_dir/SwingBench/tmpdata/indexes --sub_dataset_identifier Rust
+python swebench/prepare/swing_build_index.py \
+    --dataset_path SwingBench/SwingBench \
+    --repo_root_dir /raid/SwingBench/tmpdata/testbed \
+    --output_dir /raid/SwingBench/tmpdata/indexes \
+    --split Rust 

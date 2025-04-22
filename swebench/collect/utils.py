@@ -408,51 +408,53 @@ def extract_problem_statement_and_hints_django(
 
     return text, all_hints_text
 
-
-def extract_ci_name_list(pull: dict) -> list[str]:
-    checks_info_ptn = 'https://github.com/{}/pull/{}/checks'
-    checks_url = checks_info_ptn.format(pull['base']['repo']['full_name'], pull['number'])
-    print('Processing {} {} at {}'.format(pull['base']['repo']['full_name'], pull['number'], checks_url))
-    response = requests.get(checks_url)
-    if response.status_code == 200:
-        runs_url_prefix = '{}/actions/runs/'.format(pull['base']['repo']['full_name'])
-        runs_url_ptn = re.compile(rf'{runs_url_prefix}(\d+)')
-        matches = runs_url_ptn.findall(response.text)
-        ci_names = []
-        for num in list(set(matches)):
-            run_url = 'https://github.com/{}/actions/runs/{}/workflow'.format(pull['base']['repo']['full_name'], num)
-            run_response = requests.get(run_url)
-            if run_response.status_code == 200:
-                run_soup = BeautifulSoup(run_response.text, "html.parser")
-                yml = run_soup.find_all('table')
-                assert len(yml) == 1
-                yml = yml[0].get('data-tagsearch-path')
-                action_list = run_soup.find_all("a", class_="ActionListContent--visual16")
-                summary_index = None
-                usage_index = None
-                for i, item in enumerate(action_list):
-                    href = item.get('href', '')
-                    if '/actions/runs/' in href and href.endswith(str(num)):
-                        summary_index = i
-                    elif href.endswith('/usage'):
-                        usage_index = i
-                
-                if summary_index is None or usage_index is None or summary_index >= usage_index:
-                    raise ValueError("Could not find Summary or Usage in the expected order")
-                
-                action_list = action_list[summary_index + 1:usage_index]
-                ci = None
-                for action in action_list:
-                    svg = action.find('svg', attrs={'aria-label': lambda value: value != 'skipped: '})
-                    if svg:
-                        label_span = action.find('span', class_='ActionListItem-label')
-                        if label_span:
-                            ci = label_span.get_text(strip=True)
-                assert ci is not None
-                ci_names.append((ci, yml))
-
-        return list(set(ci_names))
-    return []
+def extract_ci_name_list(pull: dict) -> List[Tuple[str, str]]:
+    """Extract CI job names and workflow files from a PR
+    
+    Args:
+        pull: Pull Request data dictionary
+    
+    Returns:
+        List of tuples containing (ci_job_name, workflow_file_path)
+    """
+    try:
+        repo_full_name = pull['base']['repo']['full_name']
+        pr_number = pull['number']
+    except KeyError as e:
+        logger.error(f"Invalid input format, missing key: {e}")
+        return []
+    
+    checks_url = f"https://github.com/{repo_full_name}/pull/{pr_number}/checks"
+    print(f"Processing {repo_full_name} {pr_number} at {checks_url}")
+    
+    # Get checks page
+    checks_html = get_html_page(checks_url)
+    
+    if not checks_html:
+        logger.error(f"Failed to fetch checks page")
+        return []
+    
+    # Find workflow run IDs
+    runs_url_prefix = f'{repo_full_name}/actions/runs/'
+    runs_url_ptn = re.compile(rf'{runs_url_prefix}(\d+)')
+    matches = runs_url_ptn.findall(checks_html)
+    
+    all_ci_names = []
+    
+    # Process each unique run ID
+    for run_id in set(matches):
+        workflow_url = f"https://github.com/{repo_full_name}/actions/runs/{run_id}/workflow"
+        workflow_html = get_html_page(workflow_url)
+        
+        if not workflow_html:
+            continue
+            
+        # Extract jobs from this workflow
+        ci_names = find_workflow_jobs(workflow_html, run_id)
+        all_ci_names.extend(ci_names)
+    
+    # Return unique CI names
+    return list(set(all_ci_names))
 
 # Create a session with retry capability
 session = requests.Session()
@@ -599,55 +601,6 @@ def find_workflow_jobs(workflow_html: str, run_id: str) -> List[Tuple[str, str]]
         logger.warning(f"Error extracting jobs from workflow HTML: {e}")
     
     return ci_names
-
-# TODO(hrwang): check which version to use
-# def extract_ci_name_list(pull: dict) -> List[Tuple[str, str]]:
-#     """Extract CI job names and workflow files from a PR
-    
-#     Args:
-#         pull: Pull Request data dictionary
-    
-#     Returns:
-#         List of tuples containing (ci_job_name, workflow_file_path)
-#     """
-#     try:
-#         repo_full_name = pull['base']['repo']['full_name']
-#         pr_number = pull['number']
-#     except KeyError as e:
-#         logger.error(f"Invalid input format, missing key: {e}")
-#         return []
-    
-#     checks_url = f"https://github.com/{repo_full_name}/pull/{pr_number}/checks"
-#     print(f"Processing {repo_full_name} {pr_number} at {checks_url}")
-    
-#     # Get checks page
-#     checks_html = get_html_page(checks_url)
-    
-#     if not checks_html:
-#         logger.error(f"Failed to fetch checks page")
-#         return []
-    
-#     # Find workflow run IDs
-#     runs_url_prefix = f'{repo_full_name}/actions/runs/'
-#     runs_url_ptn = re.compile(rf'{runs_url_prefix}(\d+)')
-#     matches = runs_url_ptn.findall(checks_html)
-    
-#     all_ci_names = []
-    
-#     # Process each unique run ID
-#     for run_id in set(matches):
-#         workflow_url = f"https://github.com/{repo_full_name}/actions/runs/{run_id}/workflow"
-#         workflow_html = get_html_page(workflow_url)
-        
-#         if not workflow_html:
-#             continue
-            
-#         # Extract jobs from this workflow
-#         ci_names = find_workflow_jobs(workflow_html, run_id)
-#         all_ci_names.extend(ci_names)
-    
-#     # Return unique CI names
-#     return list(set(all_ci_names))
 
 if __name__ == '__main__':
     pull = dict()

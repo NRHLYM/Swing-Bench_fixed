@@ -15,10 +15,9 @@ from swebench.harness.swing_utils import load_swingbench_dataset
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-def extract_repo_commits(dataset_path: str, sub_dataset_identifier: str) -> Dict[str, Set[str]]:
+def extract_repo_commits(dataset_path: str, sub_dataset_identifier: str, split: str) -> Dict[str, Set[str]]:
     repo_commits: Dict[str, Set[str]] = {}
-    
-    dataset = load_swingbench_dataset(dataset_path, sub_dataset_identifier=sub_dataset_identifier)
+    dataset = load_swingbench_dataset(dataset_path, sub_dataset_identifier=sub_dataset_identifier, split=split)
     for instance in dataset:
         if instance.repo not in repo_commits:
             repo_commits[instance.repo] = set()
@@ -33,7 +32,7 @@ def check_repo_exists(repo: str, repo_path: str) -> None:
     if not os.path.exists(repo):
         print(f'repo {repo} does not exist. Cloning...')
         repo_owner, repo_name = repo.split("/")
-        repo_url = f"https://github.com/{repo}"
+        repo_url = f"https://github.com.psmoe.com/{repo}"
         subprocess.run(["git", "clone", repo_url, repo_path, "--recursive"])
 
 
@@ -95,7 +94,6 @@ DOCUMENT_ENCODING_FUNCTIONS = {
     "file_name_and_documentation": file_name_and_documentation,
 }
 
-
 def build_repo_index(
     repo: str,
     commits: Set[str],
@@ -114,7 +112,7 @@ def build_repo_index(
     
     for commit in tqdm(commits, desc=f"Building indexes for {repo}"):
         commit_index_path = index_root / commit
-        if commit_index_path.exists():
+        if (commit_index_path / "index").exists():
             logger.info(f"Index for commit {commit} already exists, skipping...")
             continue
             
@@ -149,7 +147,10 @@ def build_repo_index(
             
             subprocess.run(cmd, check=True)
             logger.info(f"Successfully built index for commit {commit}")
-            
+
+            # Remove the documents.jsonl after indexing
+            documents_path.unlink()
+
         except Exception as e:
             logger.error(f"Failed to build index for commit {commit}")
             logger.error(str(e))
@@ -158,6 +159,69 @@ def build_repo_index(
     if os.path.exists(repo_dir):
         print(f'Remove finished {repo_dir}.')
         shutil.rmtree(repo_dir)
+        
+# def build_repo_index(
+#     repo: str,
+#     commits: Set[str],
+#     root_dir: str,
+#     repo_root_dir: str,
+#     document_encoding_style: str,
+#     python: str,
+# ):
+#     document_encoding_func = DOCUMENT_ENCODING_FUNCTIONS[document_encoding_style]
+    
+#     index_root = Path(root_dir) / repo.replace('/', '__') / document_encoding_style
+#     index_root.mkdir(parents=True, exist_ok=True)
+    
+#     repo_dir = os.path.join(repo_root_dir, repo.replace('/', '__'))
+#     check_repo_exists(repo, repo_dir)
+    
+#     for commit in tqdm(commits, desc=f"Building indexes for {repo}"):
+#         commit_index_path = index_root / commit
+#         if commit_index_path.exists():
+#             logger.info(f"Index for commit {commit} already exists, skipping...")
+#             continue
+            
+#         try:
+#             documents = build_documents(repo_dir, commit, document_encoding_func)
+            
+#             documents_path = commit_index_path / "documents.jsonl"
+#             documents_path.parent.mkdir(parents=True, exist_ok=True)
+            
+#             with open(documents_path, "w") as docfile:
+#                 for relative_path, contents in documents.items():
+#                     print(
+#                         json.dumps({"id": relative_path, "contents": contents}),
+#                         file=docfile,
+#                         flush=True,
+#                     )
+            
+#             index_path = commit_index_path / "index"
+#             cmd = [
+#                 python,
+#                 "-m",
+#                 "pyserini.index",
+#                 "--collection", "JsonCollection",
+#                 "--generator", "DefaultLuceneDocumentGenerator",
+#                 "--threads", "2",
+#                 "--input", documents_path.parent.as_posix(),
+#                 "--index", index_path.as_posix(),
+#                 "--storePositions",
+#                 "--storeDocvectors",
+#                 "--storeRaw",
+#             ]
+            
+#             subprocess.run(cmd, check=True)
+#             logger.info(f"Successfully built index for commit {commit}")
+            
+#         except Exception as e:
+#             logger.error(f"Failed to build index for commit {commit}")
+#             logger.error(str(e))
+#             continue
+
+#     if os.path.exists(repo_dir):
+#         print(f'Remove finished {repo_dir}.')
+#         shutil.rmtree(repo_dir)
 
 
 def main():
@@ -174,9 +238,10 @@ def main():
                       help="Directory to store the repos")
     parser.add_argument("--sub_dataset_identifier", type=str, default="Rust",
                       help="Sub dataset identifier to build the indexes")
+    parser.add_argument("--split", type=str, default=None,
+                      help="Split to build the indexes")
     args = parser.parse_args()
-    
-    repo_commits = extract_repo_commits(args.dataset_path, args.sub_dataset_identifier)
+    repo_commits = extract_repo_commits(args.dataset_path, args.sub_dataset_identifier, args.split)
     
     python = subprocess.run("which python", shell=True, capture_output=True)
     python = python.stdout.decode("utf-8").strip()

@@ -53,17 +53,21 @@ class CodeEditorBase:
 
 
 class RawDataCodeEditor(CodeEditorBase):
-    def __init__(self, api_key: str, base_url: str, model: str):
+    def __init__(self, api_key: str, base_url: str, model: str, tok_model: str = None):
         self.client = OpenAI(api_key=api_key, base_url=base_url)
         self.model = model
-        self.max_model_len = 0
-        self.tokenizer = AutoTokenizer.from_pretrained(model)
+        self.max_model_len = 4096
+        if tok_model is not None:
+            self.tokenizer = AutoTokenizer.from_pretrained(tok_model)
+        else:
+            self.tokenizer = AutoTokenizer.from_pretrained(model)
         for each in self.client.models.list():
             # only have one model.
             print("--------------------------------0")
             print(each)
             print("--------------------------------1")
-            self.max_model_len = int(each.max_model_len)
+            if hasattr(each, "max_model_len"):
+                self.max_model_len = int(each.max_model_len)
             break
 
     def _parse_structured_data(self, content: str) -> dict:

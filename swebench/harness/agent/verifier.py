@@ -171,49 +171,37 @@ class CodeChunker:
         
  
         if language == "python":
-            # 尝试使用tree_sitter_python模块
-           
             import tree_sitter_python
             PYTHON_LANGUAGE = Language(tree_sitter_python.language())
             self.parser = Parser(PYTHON_LANGUAGE)
             
-            print(f"成功加载Python语言")
+            print(f"Successfully loaded Python language: {self.parser}")
 
                 
         elif language == "javascript":
-            # 尝试使用tree_sitter_javascript模块
-       
-                import tree_sitter_javascript
-                JS_LANGUAGE = Language(tree_sitter_javascript.language())
-                self.parser = Parser(JS_LANGUAGE)
-                
-                print(f"成功加载JavaScript语言")
+            import tree_sitter_javascript
+            JS_LANGUAGE = Language(tree_sitter_javascript.language())
+            self.parser = Parser(JS_LANGUAGE)
+            
+            print(f"Successfully loaded JavaScript language: {self.parser}")
 
                 
         elif language == "typescript":
-            # 尝试使用tree_sitter_typescript模块
-         
-                import tree_sitter_typescript
-                TS_LANGUAGE = Language(tree_sitter_typescript.language())
-                self.parser = Parser(TS_LANGUAGE)
+            import tree_sitter_typescript
+            TS_LANGUAGE = Language(tree_sitter_typescript.language())
+            self.parser = Parser(TS_LANGUAGE)
     
-                print(f"成功加载TypeScript语言")
-
-                
+            print(f"Successfully loaded TypeScript language: {self.parser}")
+        
         elif language == "rust":
-            # 使用tree_sitter_rust模块
+            import tree_sitter_rust as tsrust
+            RUST_LANGUAGE = Language(tsrust.language())
+            self.parser = Parser(RUST_LANGUAGE)
         
-                import tree_sitter_rust as tsrust
-                RUST_LANGUAGE = Language(tsrust.language())
-                self.parser = Parser(RUST_LANGUAGE)
-            
-                print(f"成功加载Rust语言: {self.parser}")
-                #assert 1==0
-        
+            print(f"Successfully loaded Rust language: {self.parser}")
                 
         else:
-            # 默认情况下使用正则表达式
-            print(f"不支持的语言: {language}，将使用正则表达式解析")
+            print(f"Language {language} not supported, will use regex to parse")
             self.parser = None
                 
 
@@ -284,7 +272,7 @@ class CodeChunker:
                 query_string = "(function_definition) @function (class_definition) @class"
         elif self.language == "rust":
             print("self.language:{}".format(self.language))
-            # 使用正确的Rust语法节点类型
+            # Use the correct Rust syntax node type
             if self.chunk_type == "function":
                 query_string = "(function_item name: (identifier) @func_name) @function"
             elif self.chunk_type == "class" or self.chunk_type == "struct":
@@ -479,19 +467,19 @@ class PatchGenerator(Generator):
         print(f"code_snippet[hits][0]['docid']: {code_snippet['hits'][0]['docid']}")
         
         all_chunks = []
-        # 对每个hit中的代码内容进行分块
+        # Chunk the code snippet for each hit
         for hit in code_snippet['hits']:
-            # 使用self.chunker对代码进行分块
+            # Use self.chunker to chunk the code
             chunks = self.chunker.chunk(code_snippet=hit['contents'])
-            # 将分块结果添加到hit中，并关联原始文件路径
+            # Add the chunk results to the hit and associate the original file path
             for chunk in chunks:
                 chunk['file_path'] = hit['docid']
             hit['chunks'] = chunks
             all_chunks.extend(chunks)
-            # 打印分块信息 
+            # Print the chunking information 
             print(f"File {hit['docid']} has {len(chunks)} code chunks")
  
-        # 使用reranker对所有代码块进行重新排序
+        # Rerank the all code chunks
         print(f"Total chunks before reranking: {len(all_chunks)}")
         if all_chunks and self.reranker.initialized:
             top_chunks = self.reranker.rerank(all_chunks, data.problem_statement, top_k=self.max_chunk_num)
@@ -500,11 +488,11 @@ class PatchGenerator(Generator):
                 print(f"  Top Chunk {i}: {chunk['type']} - {chunk['name']} (score: {chunk.get('similarity_score', 'N/A')})")
                 print(f"    From file: {chunk['file_path']}")
         
-        # 根据重排序后的代码块构建新的输入
+        # Build the new input based on the reranked code chunks
         chunk_file_path_list = [chunk['file_path'] for chunk in top_chunks]
         chunk_code_list = [chunk['code'] for chunk in top_chunks]
         
-        # 构建与代码块相关的元数据信息，帮助模型理解上下文
+        # Build the metadata information related to the code chunks to help the model understand the context
         context_info = []
         for chunk in top_chunks:
             context_info.append(f"File: {chunk['file_path']}\n"
@@ -513,21 +501,21 @@ class PatchGenerator(Generator):
                               f"Lines: {chunk['start_line']}-{chunk['end_line']}\n"
                               f"Code:\n{chunk['code']}\n")
         
-        # 将上下文信息添加到问题描述中
+        # Add the context information to the problem statement
         enhanced_problem = data.problem_statement + "\n\n" + "RELEVANT CODE BLOCKS:\n" + "\n".join(context_info)
         
-        # 使用原始文件列表作为备选，同时提供代码块
+        # Use the original file list as a backup, and provide the code chunks
         file_path_list = [hit["docid"] for hit in code_snippet["hits"]]
         code_snippet_list = [hit["contents"] for hit in code_snippet["hits"]]
         
-        # 调用编辑器时使用增强后的问题描述，同时提供原始文件和分块后的代码
+        # Call the editor with the enhanced problem description, and provide the original file and the code chunks
         response = self.code_editor.edit_code_batch(
             enhanced_problem,
-            code_snippet_list,  # 原始完整代码
-            file_path_list,     # 原始文件路径
+            code_snippet_list,  # Original complete code
+            file_path_list,     # Original file path
             role="patch",
             retry=self.agent_retry_times,
-            chunks={            # 添加代码块信息作为额外上下文
+            chunks={ # Add the code chunks information as additional context
                 "file_paths": chunk_file_path_list,
                 "code_blocks": chunk_code_list,
                 "metadata": top_chunks
@@ -586,19 +574,19 @@ class TestGenerator(Generator):
         print(f"code_snippet[hits][0]: {code_snippet['hits'][0]}")
         
         all_chunks = []
-        # 对每个hit中的代码内容进行分块
+        # Chunk the code snippet for each hit
         for hit in code_snippet['hits']:
-            # 使用self.chunker对代码进行分块
+            # Use self.chunker to chunk the code
             chunks = self.chunker.chunk(code_snippet=hit['contents'])
-            # 将分块结果添加到hit中，并关联原始文件路径
+            # Add the chunk results to the hit and associate the original file path
             for chunk in chunks:
                 chunk['file_path'] = hit['docid']
             hit['chunks'] = chunks
             all_chunks.extend(chunks)
-            # 打印分块信息 
+            # Print the chunking information 
             print(f"File {hit['docid']} has {len(chunks)} code chunks")
         
-        # 使用reranker对所有代码块进行重新排序
+        # Rerank the all code chunks
         print(f"Total chunks before reranking: {len(all_chunks)}")
         if all_chunks and self.reranker.initialized:
             top_chunks = self.reranker.rerank(all_chunks, data.problem_statement, top_k=self.max_chunk_num)
@@ -607,11 +595,11 @@ class TestGenerator(Generator):
                 print(f"  Top Chunk {i}: {chunk['type']} - {chunk['name']} (score: {chunk.get('similarity_score', 'N/A')})")
                 print(f"    From file: {chunk['file_path']}")
         
-        # 根据重排序后的代码块构建新的输入
+        # Build the new input based on the reranked code chunks
         chunk_file_path_list = [chunk['file_path'] for chunk in top_chunks]
         chunk_code_list = [chunk['code'] for chunk in top_chunks]
         
-        # 构建与代码块相关的元数据信息，帮助模型理解上下文
+        # Build the metadata information related to the code chunks to help the model understand the context
         context_info = []
         for chunk in top_chunks:
             context_info.append(f"File: {chunk['file_path']}\n"
@@ -620,25 +608,25 @@ class TestGenerator(Generator):
                               f"Lines: {chunk['start_line']}-{chunk['end_line']}\n"
                               f"Code:\n{chunk['code']}\n")
         
-        # 将上下文信息和补丁添加到问题描述中
+        # Add the context information and patch to the problem statement
         enhanced_problem = data.problem_statement + "\n\n" + "RELEVANT CODE BLOCKS:\n" + "\n".join(context_info)
         # print(f"generated_patch: {generated_patch}")
         # if generated_patch:
         #     enhanced_problem += "\n\nGENERATED PATCH:\n" + generated_patch
         
-        # 使用原始文件列表作为备选，同时提供代码块
+        # Use the original file list as a backup, and provide the code chunks
         file_path_list = [hit["docid"] for hit in code_snippet["hits"]]
         code_snippet_list = [hit["contents"] for hit in code_snippet["hits"]]
         
-        # 调用编辑器时使用增强后的问题描述
+        # Call the editor with the enhanced problem description
         response = self.code_editor.edit_code_batch(
             enhanced_problem,
-            code_snippet_list,  # 原始完整代码
-            file_path_list,     # 原始文件路径
+            code_snippet_list,  # Original complete code
+            file_path_list,     # Original file path
             role="test",
             retry=self.agent_retry_times,
             generated_patch=generated_patch,
-            chunks={            # 添加代码块信息作为额外上下文
+            chunks={ # Add the code chunks information as additional context
                 "file_paths": chunk_file_path_list,
                 "code_blocks": chunk_code_list,
                 "metadata": top_chunks
