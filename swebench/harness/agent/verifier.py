@@ -1,4 +1,13 @@
 import os
+import sys
+
+# 设置临时目录 - 在最开始设置
+temp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "temp")
+os.makedirs(temp_dir, exist_ok=True)
+os.environ['TMPDIR'] = temp_dir
+os.environ['TEMP'] = temp_dir
+os.environ['TMP'] = temp_dir
+
 import copy
 from abc import abstractmethod
 from datetime import datetime
@@ -9,11 +18,127 @@ from swebench.harness.router import CIToolBase
 from swebench.harness.router import EVAL_HANDLER
 from swebench.harness.agent.model import AgentProxy
 import shutil
+import tempfile
+# 强制设置临时目录
+tempfile.tempdir = temp_dir
+
 from swebench.harness.agent.editor import generate_git_diff_batch
 from swebench.harness.agent.retriever import Retriever
 from swebench.harness.agent.editor import CodeEditorBase
 from swebench.harness.utils import get_available_port_pool
 from swebench.harness.swing_utils import merge_diffs
+
+from tree_sitter import Language, Parser
+import torch
+from transformers import AutoTokenizer, AutoModel
+import numpy as np
+from typing import List, Dict, Any
+import re
+
+class CodeReranker:
+    def __init__(self, model_name="microsoft/codebert-base"):
+        """
+        初始化代码重排序器
+        
+        Args:
+            model_name: 用于计算embedding的模型名称
+        """
+        try:
+            self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+            self.model = AutoModel.from_pretrained(model_name)
+            self.device = "cuda" if torch.cuda.is_available() else "cpu"
+            self.model.to(self.device)
+            self.model.eval()
+            print(f"CodeReranker initialized with {model_name} on {self.device}")
+            self.initialized = True
+        except Exception as e:
+            print(f"Failed to initialize CodeReranker: {e}")
+            self.initialized = False
+    
+    def get_embeddings(self, code_texts):
+        """计算代码文本的嵌入向量"""
+        if not self.initialized:
+            return None
+            
+        try:
+            # 使用tokenizer处理代码文本
+            inputs = self.tokenizer(code_texts, padding=True, truncation=True, 
+                                    max_length=512, return_tensors="pt").to(self.device)
+            
+            # 不计算梯度
+            with torch.no_grad():
+                outputs = self.model(**inputs)
+            
+            # 使用[CLS]标记的embedding作为整个序列的表示
+            embeddings = outputs.last_hidden_state[:, 0, :]
+            
+            # 转换为numpy数组并返回
+            return embeddings.cpu().numpy()
+        except Exception as e:
+            print(f"Error during embedding calculation: {e}")
+            return None
+    
+    def calculate_similarity(self, query_embedding, code_embeddings):
+        """计算查询和代码块之间的余弦相似度"""
+        if not self.initialized:
+            return None
+            
+        # 对embeddings进行正则化
+        query_norm = query_embedding / np.linalg.norm(query_embedding)
+        code_norms = code_embeddings / np.linalg.norm(code_embeddings, axis=1, keepdims=True)
+        
+        # 计算余弦相似度
+        similarities = np.dot(code_norms, query_norm.T).flatten()
+        return similarities
+    
+    def rerank(self, chunks, problem_statement, top_k=3):
+        """
+        根据与问题描述的相关性对代码块进行重新排序
+        
+        Args:
+            chunks: 代码块列表
+            problem_statement: 问题描述
+            top_k: 返回的顶部代码块数量
+            
+        Returns:
+            按相关性排序的前top_k个代码块
+        """
+        if not self.initialized or not chunks:
+            return chunks[:top_k] if chunks else []
+        
+        # 提取代码文本
+        code_texts = [chunk["code"] for chunk in chunks]
+        
+        # 获取问题和代码的嵌入
+        try:
+            all_texts = [problem_statement] + code_texts
+            all_embeddings = self.get_embeddings(all_texts)
+            
+            if all_embeddings is None:
+                return chunks[:top_k]
+                
+            # 分离问题和代码的嵌入
+            query_embedding = all_embeddings[0]
+            code_embeddings = all_embeddings[1:]
+            
+            # 计算相似度
+            similarities = self.calculate_similarity(query_embedding, code_embeddings)
+            
+            # 获取排序后的索引
+            sorted_indices = np.argsort(-similarities)  # 降序排序
+            
+            # 选择top_k个代码块
+            top_indices = sorted_indices[:min(top_k, len(chunks))]
+            reranked_chunks = [chunks[i] for i in top_indices]
+            
+            # 添加相似度分数到代码块中
+            for i, chunk in enumerate(reranked_chunks):
+                chunk["similarity_score"] = float(similarities[top_indices[i]])
+                
+            return reranked_chunks
+        except Exception as e:
+            print(f"Error during reranking: {e}")
+            return chunks[:top_k]
 
 class Verifier:
     @abstractmethod
@@ -38,6 +163,285 @@ class Generator:
     def generate(self, data: SwingbenchInstance):
         raise NotImplementedError
 
+class CodeChunker:
+    def __init__(self, language: str = "rust", chunk_type: str = "function"):
+    
+        self.language = language
+        self.chunk_type = chunk_type
+        
+ 
+        if language == "python":
+            # 尝试使用tree_sitter_python模块
+           
+            import tree_sitter_python
+            PYTHON_LANGUAGE = Language(tree_sitter_python.language())
+            self.parser = Parser(PYTHON_LANGUAGE)
+            
+            print(f"成功加载Python语言")
+
+                
+        elif language == "javascript":
+            # 尝试使用tree_sitter_javascript模块
+       
+                import tree_sitter_javascript
+                JS_LANGUAGE = Language(tree_sitter_javascript.language())
+                self.parser = Parser(JS_LANGUAGE)
+                
+                print(f"成功加载JavaScript语言")
+
+                
+        elif language == "typescript":
+            # 尝试使用tree_sitter_typescript模块
+         
+                import tree_sitter_typescript
+                TS_LANGUAGE = Language(tree_sitter_typescript.language())
+                self.parser = Parser(TS_LANGUAGE)
+    
+                print(f"成功加载TypeScript语言")
+
+                
+        elif language == "rust":
+            # 使用tree_sitter_rust模块
+        
+                import tree_sitter_rust as tsrust
+                RUST_LANGUAGE = Language(tsrust.language())
+                self.parser = Parser(RUST_LANGUAGE)
+            
+                print(f"成功加载Rust语言: {self.parser}")
+                #assert 1==0
+        
+                
+        else:
+            # 默认情况下使用正则表达式
+            print(f"不支持的语言: {language}，将使用正则表达式解析")
+            self.parser = None
+                
+
+    def chunk(self, code_snippet: str = None) -> List[Dict[str, Any]]:
+        """
+        Chunk the code snippet into smaller, semantically meaningful pieces.
+        
+        Args:
+            chunk_type: The type of chunks to extract. Options: "function", "class", "block"
+        
+        Returns:
+            A list of dictionaries containing chunk information:
+            [
+                {
+                    "type": str,  # Type of the chunk (function, class, etc.)
+                    "name": str,  # Name of the function, class, etc.
+                    "code": str,  # The code content of the chunk
+                    "start_line": int,  # Starting line number
+                    "end_line": int,  # Ending line number
+                    "metadata": dict  # Additional metadata about the chunk
+                },
+                ...
+            ]
+        """
+        print("start chunk in here==========================:{}".format(code_snippet))
+        
+        if not code_snippet or code_snippet.strip() == "":
+            return []
+            
+        # If tree-sitter parser is available, use it
+        if self.parser is not None:
+                print("start _chunk_with_tree_sitter in here==========================")
+                #assert 1==0
+                return self._chunk_with_tree_sitter(code_snippet)
+
+            
+        else:
+            #assert 1==0
+            # Use regex-based chunking as fallback
+            return self._chunk_with_regex(code_snippet)
+    
+    def _chunk_with_tree_sitter(self,  code_snippet: str = None) -> List[Dict[str, Any]]:
+        """Use tree-sitter to extract code chunks."""
+        print("start _chunk_with_tree_sitter in here==========================")
+        chunks = []
+        tree = self.parser.parse(bytes(code_snippet, "utf8"))
+        root_node = tree.root_node
+        
+        # Split code into lines for line number references
+        #lines = code_snippet.split("\n")
+        
+        # Define query patterns based on chunk_type and language
+        if self.language == "python":
+            if self.chunk_type == "function":
+                query_string = "(function_definition name: (identifier) @func_name) @function"
+            elif self.chunk_type == "class":
+                query_string = "(class_definition name: (identifier) @class_name) @class"
+            elif self.chunk_type == "block":
+                query_string = """
+                (function_definition) @block
+                (class_definition) @block
+                (if_statement) @block
+                (for_statement) @block
+                (while_statement) @block
+                (try_statement) @block
+                """
+            else:
+                query_string = "(function_definition) @function (class_definition) @class"
+        elif self.language == "rust":
+            print("self.language:{}".format(self.language))
+            # 使用正确的Rust语法节点类型
+            if self.chunk_type == "function":
+                query_string = "(function_item name: (identifier) @func_name) @function"
+            elif self.chunk_type == "class" or self.chunk_type == "struct":
+                query_string = "(struct_item name: (type_identifier) @struct_name) @struct"
+            elif self.chunk_type == "block":
+                query_string = """
+                (function_item) @block
+                (struct_item) @block
+                (impl_item) @block
+                (trait_item) @block
+                (if_expression) @block
+                (for_expression) @block
+                (while_expression) @block
+                """
+            else:
+                query_string = """
+                (function_item) @function 
+                (struct_item) @struct
+                (impl_item) @impl
+                """
+        else:
+            # Default query patterns for other languages
+            if self.chunk_type == "function":
+                query_string = "(function_declaration name: (identifier) @func_name) @function"
+            elif self.chunk_type == "class":
+                query_string = "(class_declaration name: (identifier) @class_name) @class"
+            else:
+                query_string = "(function_declaration) @function (class_declaration) @class"
+        
+        # Create and execute the query
+        language = self.parser.language
+        query = language.query(query_string)
+        captures = query.captures(root_node)
+        
+        # 新版tree-sitter返回的是字典结构，每个键是标签名称，值是匹配的节点列表
+        # 正确处理这种字典结构
+        # 我们只关注主要节点（function, class, struct等），而不是它们的子节点（如func_name）
+        main_tags = ["function", "class", "struct", "block", "impl"]
+        
+        # 遍历每个主要标签
+        for tag in main_tags:
+            if tag in captures:
+                # 处理这个标签下的所有节点
+                for node in captures[tag]:
+                    
+                    start_point = node.start_point
+                    end_point = node.end_point
+                    start_line = start_point[0]
+                    end_line = end_point[0]
+                    
+                    # 获取节点文本
+                    node_text = code_snippet[node.start_byte:node.end_byte]
+                    
+                    # 尝试提取名称
+                    name = ""
+                    # 看是否有对应的name节点
+                    name_tag = None
+                    if tag == "function":
+                        name_tag = "func_name"
+                    elif tag == "class":
+                        name_tag = "class_name"
+                    elif tag == "struct":
+                        name_tag = "struct_name"
+                    
+                    # 如果有对应的name标签，直接从那里获取名称
+                    if name_tag and name_tag in captures:
+                        # 需要找到对应于当前节点的name节点
+                        for name_node in captures[name_tag]:
+                            # 检查name_node是否是当前node的子节点
+                            if name_node.start_byte >= node.start_byte and name_node.end_byte <= node.end_byte:
+                                name = code_snippet[name_node.start_byte:name_node.end_byte]
+                                break
+                    
+                    # 如果没有从name标签中获取到名称，尝试从子节点中查找
+                    if not name:
+                        for child in node.children:
+                            if child.type == "identifier" or child.type == "type_identifier":
+                                name = code_snippet[child.start_byte:child.end_byte]
+                                break
+                    
+                    chunks.append({
+                        "type": tag,
+                        "name": name,
+                        "code": node_text,
+                        "start_line": start_line + 1,  # 1-indexed line numbers
+                        "end_line": end_line + 1,
+                        "metadata": {
+                            "node_type": node.type,
+                            "byte_range": (node.start_byte, node.end_byte)
+                        }
+                    })
+        
+        return chunks
+    
+    def _chunk_with_regex(self, code_snippet: str = None) -> List[Dict[str, Any]]:
+        """Use regex patterns to extract code chunks as fallback."""
+        chunks = []
+        lines = code_snippet.split("\n")
+        
+        if self.language == "python":
+            if self.chunk_type in ["function", "block"]:
+                # Match function definitions
+                pattern = r"^(\s*)def\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\("
+                matches = []
+                for i, line in enumerate(lines):
+                    match = re.match(pattern, line)
+                    if match:
+                        matches.append((i, match.group(1), match.group(2)))
+                
+                # Process matches to get function chunks
+                for j, (start_idx, indent, func_name) in enumerate(matches):
+                    # Find where function ends (next line with same or less indentation)
+                    end_idx = start_idx
+                    for k in range(start_idx + 1, len(lines)):
+                        if lines[k].strip() and not lines[k].startswith(indent + " "):
+                            end_idx = k - 1
+                            break
+                        end_idx = k
+                    
+                    chunks.append({
+                        "type": "function",
+                        "name": func_name,
+                        "code": "\n".join(lines[start_idx:end_idx+1]),
+                        "start_line": start_idx + 1,
+                        "end_line": end_idx + 1,
+                        "metadata": {"indent": len(indent)}
+                    })
+            
+            if self.chunk_type in ["class", "block"]:
+                # Match class definitions
+                pattern = r"^(\s*)class\s+([a-zA-Z_][a-zA-Z0-9_]*)"
+                matches = []
+                for i, line in enumerate(lines):
+                    match = re.match(pattern, line)
+                    if match:
+                        matches.append((i, match.group(1), match.group(2)))
+                
+                # Process matches to get class chunks
+                for j, (start_idx, indent, class_name) in enumerate(matches):
+                    # Find where class ends
+                    end_idx = start_idx
+                    for k in range(start_idx + 1, len(lines)):
+                        if lines[k].strip() and not lines[k].startswith(indent + " "):
+                            end_idx = k - 1
+                            break
+                        end_idx = k
+                    
+                    chunks.append({
+                        "type": "class",
+                        "name": class_name,
+                        "code": "\n".join(lines[start_idx:end_idx+1]),
+                        "start_line": start_idx + 1,
+                        "end_line": end_idx + 1,
+                        "metadata": {"indent": len(indent)}
+                    })
+        
+        return chunks
 
 class PatchGenerator(Generator):
     def __init__(self, workdir: str = "testbed", 
@@ -46,6 +450,7 @@ class PatchGenerator(Generator):
                  retriever: Retriever = None,
                  retrieve_file_num: int = 20,
                  agent_retry_times: int = 3,
+                 max_chunk_num: int = 3,
                  ):
         self.workdir = workdir
         self.src_folder = src_folder
@@ -53,7 +458,9 @@ class PatchGenerator(Generator):
         self.retriever = retriever
         self.retrieve_file_num = retrieve_file_num
         self.agent_retry_times = agent_retry_times
-    
+        self.chunker = CodeChunker(language="rust", chunk_type="function")
+        self.max_chunk_num = max_chunk_num
+        self.reranker = CodeReranker()
     def model_name(self):
         return self.code_editor.model
 
@@ -63,13 +470,69 @@ class PatchGenerator(Generator):
         """
         print("Retrieving data files from retriever to data:{}".format(data))
         code_snippet = self.retriever.retrieve(data, k=self.retrieve_file_num)
+        print(f"self.retrieve_file_num: {self.retrieve_file_num}")
+        print(f"len of code_snippet: {len(code_snippet)}")
+        print(f"code_snippet.keys: {code_snippet.keys()}")
+        print(f"len(code_snippet['hits']): {len(code_snippet['hits'])}")
+        print(f"code_snippet[hits].keys: {code_snippet['hits'][0].keys()}")
+        print(f"code_snippet[hits][0]: {code_snippet['hits'][0]}")
+        print(f"code_snippet[hits][0]['docid']: {code_snippet['hits'][0]['docid']}")
+        
+        all_chunks = []
+        # 对每个hit中的代码内容进行分块
+        for hit in code_snippet['hits']:
+            # 使用self.chunker对代码进行分块
+            chunks = self.chunker.chunk(code_snippet=hit['contents'])
+            # 将分块结果添加到hit中，并关联原始文件路径
+            for chunk in chunks:
+                chunk['file_path'] = hit['docid']
+            hit['chunks'] = chunks
+            all_chunks.extend(chunks)
+            # 打印分块信息 
+            print(f"File {hit['docid']} has {len(chunks)} code chunks")
+ 
+        # 使用reranker对所有代码块进行重新排序
+        print(f"Total chunks before reranking: {len(all_chunks)}")
+        if all_chunks and self.reranker.initialized:
+            top_chunks = self.reranker.rerank(all_chunks, data.problem_statement, top_k=self.max_chunk_num)
+            print(f"After reranking, selected top {len(top_chunks)} chunks:")
+            for i, chunk in enumerate(top_chunks):
+                print(f"  Top Chunk {i}: {chunk['type']} - {chunk['name']} (score: {chunk.get('similarity_score', 'N/A')})")
+                print(f"    From file: {chunk['file_path']}")
+        
+        # 根据重排序后的代码块构建新的输入
+        chunk_file_path_list = [chunk['file_path'] for chunk in top_chunks]
+        chunk_code_list = [chunk['code'] for chunk in top_chunks]
+        
+        # 构建与代码块相关的元数据信息，帮助模型理解上下文
+        context_info = []
+        for chunk in top_chunks:
+            context_info.append(f"File: {chunk['file_path']}\n"
+                              f"Type: {chunk['type']}\n"
+                              f"Name: {chunk['name']}\n"
+                              f"Lines: {chunk['start_line']}-{chunk['end_line']}\n"
+                              f"Code:\n{chunk['code']}\n")
+        
+        # 将上下文信息添加到问题描述中
+        enhanced_problem = data.problem_statement + "\n\n" + "RELEVANT CODE BLOCKS:\n" + "\n".join(context_info)
+        
+        # 使用原始文件列表作为备选，同时提供代码块
         file_path_list = [hit["docid"] for hit in code_snippet["hits"]]
         code_snippet_list = [hit["contents"] for hit in code_snippet["hits"]]
-        response = self.code_editor.edit_code_batch(data.problem_statement,
-                                         code_snippet_list,
-                                         file_path_list,
-                                         role="patch",
-                                         retry=self.agent_retry_times)
+        
+        # 调用编辑器时使用增强后的问题描述，同时提供原始文件和分块后的代码
+        response = self.code_editor.edit_code_batch(
+            enhanced_problem,
+            code_snippet_list,  # 原始完整代码
+            file_path_list,     # 原始文件路径
+            role="patch",
+            retry=self.agent_retry_times,
+            chunks={            # 添加代码块信息作为额外上下文
+                "file_paths": chunk_file_path_list,
+                "code_blocks": chunk_code_list,
+                "metadata": top_chunks
+            }
+        )
         if response is None:
             return None
         base_path = f"{self.workdir}/{data.instance_id}_{str(uuid4())}"
@@ -97,6 +560,7 @@ class TestGenerator(Generator):
                  retriever: Retriever = None,
                  retrieve_file_num: int = 20,
                  agent_retry_times: int = 3,
+                 max_chunk_num: int = 3,
                  ):
         self.workdir = workdir
         self.src_folder = src_folder
@@ -104,6 +568,9 @@ class TestGenerator(Generator):
         self.retriever = retriever
         self.retrieve_file_num = retrieve_file_num
         self.agent_retry_times = agent_retry_times
+        self.chunker = CodeChunker(language="rust", chunk_type="function")
+        self.max_chunk_num = max_chunk_num
+        self.reranker = CodeReranker()
     
     def model_name(self):
         return self.code_editor.model
@@ -112,14 +579,71 @@ class TestGenerator(Generator):
         # TODO(wdxu): remove this hack.
         data.hints_text += "test, testcase, unittest."
         code_snippet = self.retriever.retrieve(data, k=self.retrieve_file_num)
+        print(f"self.retrieve_file_num: {self.retrieve_file_num}")
+        print(f"len of code_snippet: {len(code_snippet)}")
+        print(f"code_snippet.keys: {code_snippet.keys()}")
+        print(f"code_snippet[hits].keys: {code_snippet['hits'][0].keys()}")
+        print(f"code_snippet[hits][0]: {code_snippet['hits'][0]}")
+        
+        all_chunks = []
+        # 对每个hit中的代码内容进行分块
+        for hit in code_snippet['hits']:
+            # 使用self.chunker对代码进行分块
+            chunks = self.chunker.chunk(code_snippet=hit['contents'])
+            # 将分块结果添加到hit中，并关联原始文件路径
+            for chunk in chunks:
+                chunk['file_path'] = hit['docid']
+            hit['chunks'] = chunks
+            all_chunks.extend(chunks)
+            # 打印分块信息 
+            print(f"File {hit['docid']} has {len(chunks)} code chunks")
+        
+        # 使用reranker对所有代码块进行重新排序
+        print(f"Total chunks before reranking: {len(all_chunks)}")
+        if all_chunks and self.reranker.initialized:
+            top_chunks = self.reranker.rerank(all_chunks, data.problem_statement, top_k=self.max_chunk_num)
+            print(f"After reranking, selected top {len(top_chunks)} chunks:")
+            for i, chunk in enumerate(top_chunks):
+                print(f"  Top Chunk {i}: {chunk['type']} - {chunk['name']} (score: {chunk.get('similarity_score', 'N/A')})")
+                print(f"    From file: {chunk['file_path']}")
+        
+        # 根据重排序后的代码块构建新的输入
+        chunk_file_path_list = [chunk['file_path'] for chunk in top_chunks]
+        chunk_code_list = [chunk['code'] for chunk in top_chunks]
+        
+        # 构建与代码块相关的元数据信息，帮助模型理解上下文
+        context_info = []
+        for chunk in top_chunks:
+            context_info.append(f"File: {chunk['file_path']}\n"
+                              f"Type: {chunk['type']}\n"
+                              f"Name: {chunk['name']}\n"
+                              f"Lines: {chunk['start_line']}-{chunk['end_line']}\n"
+                              f"Code:\n{chunk['code']}\n")
+        
+        # 将上下文信息和补丁添加到问题描述中
+        enhanced_problem = data.problem_statement + "\n\n" + "RELEVANT CODE BLOCKS:\n" + "\n".join(context_info)
+        # print(f"generated_patch: {generated_patch}")
+        # if generated_patch:
+        #     enhanced_problem += "\n\nGENERATED PATCH:\n" + generated_patch
+        
+        # 使用原始文件列表作为备选，同时提供代码块
         file_path_list = [hit["docid"] for hit in code_snippet["hits"]]
         code_snippet_list = [hit["contents"] for hit in code_snippet["hits"]]
-        response = self.code_editor.edit_code_batch(data.problem_statement,
-                                         code_snippet_list,
-                                         file_path_list,
-                                         role="test",
-                                         retry=self.agent_retry_times,
-                                         generated_patch=generated_patch)
+        
+        # 调用编辑器时使用增强后的问题描述
+        response = self.code_editor.edit_code_batch(
+            enhanced_problem,
+            code_snippet_list,  # 原始完整代码
+            file_path_list,     # 原始文件路径
+            role="test",
+            retry=self.agent_retry_times,
+            generated_patch=generated_patch,
+            chunks={            # 添加代码块信息作为额外上下文
+                "file_paths": chunk_file_path_list,
+                "code_blocks": chunk_code_list,
+                "metadata": top_chunks
+            }
+        )
         if response is None:
             return None
         base_path = f"{self.workdir}/{data.instance_id}_{str(uuid4())}"

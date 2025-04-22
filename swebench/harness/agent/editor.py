@@ -46,7 +46,9 @@ class CodeEditorBase:
         raise NotImplementedError
 
     @abstractmethod
-    def edit_code_batch(self, issue: str, original_code: list[dict], file_path_list: list[str], role: str, retry: int = 1, generated_patch: str = None):
+    def edit_code_batch(self, problem_statement: str, code_snippets: list[str], 
+                         file_paths: list[str], role: str = "code_edit", 
+                         retry: int = 1, generated_patch: str = None, chunks: dict = None):
         raise NotImplementedError
 
 
@@ -155,14 +157,80 @@ class RawDataCodeEditor(CodeEditorBase):
                 "test_cases": function_call_args["test_cases"],
             }
 
-    def edit_code_batch(self, issue: str, original_code: list[dict], file_path_list: list[str], role: str, retry: int = 1, generated_patch: str = None):
+    def edit_code_batch(self, problem_statement: str, code_snippets: list[str], 
+                         file_paths: list[str], role: str = "code_edit", 
+                         retry: int = 1, generated_patch: str = None, chunks: dict = None):
+        """
+        Call LLM to edit code, support system_message and prompt injection
+        
+        Args:
+            problem_statement: problem statement
+            code_snippets: list of file contents
+            file_paths: list of file paths
+            role: role of code edit
+            retry: number of retries
+            generated_patch: generated patch
+            chunks: dict containing code chunks for more targeted editing
+            
+        Returns:
+            LLM response
+        """
+        # Handle empty file_paths, code_snippets or problem_statement
+        if not file_paths or not code_snippets or not problem_statement:
+            print(f"Error: Empty file_paths, code_snippets or problem_statement: \n{file_paths}\n{code_snippets}\n{problem_statement}")
+            return None
+            
+        # Prepare the file content parts
+        file_content_parts = []
+        for f, c in zip(file_paths, code_snippets):
+            file_content_parts.append(f"**file name**: {f}\n\n```\n{c}\n```")
+        
+        # If we have chunks, prepare that information
+        chunk_content = ""
+        if chunks and chunks.get("file_paths") and chunks.get("code_blocks"):
+            chunk_file_paths = chunks.get("file_paths")
+            chunk_code_blocks = chunks.get("code_blocks")
+            chunk_metadata = chunks.get("metadata", [])
+            
+            # 为每个代码块准备更详细的信息
+            for i, (path, code) in enumerate(zip(chunk_file_paths, chunk_code_blocks)):
+                metadata = chunk_metadata[i] if i < len(chunk_metadata) else {}
+                chunk_type = metadata.get("type", "unknown")
+                chunk_name = metadata.get("name", "")
+                start_line = metadata.get("start_line", "")
+                end_line = metadata.get("end_line", "")
+                
+                chunk_content += f"\n**Top relevance chunk {i+1}**:\n"
+                chunk_content += f"- File: {path}\n"
+                if chunk_type and chunk_name:
+                    chunk_content += f"- Type: {chunk_type}, Name: {chunk_name}\n"
+                if start_line and end_line:
+                    chunk_content += f"- Lines: {start_line}-{end_line}\n"
+                chunk_content += f"\n```\n{code}\n```\n"
+        
+        # Combine file contents or use a placeholder for empty files
+        file_content_combined = "\n\n".join(file_content_parts) if file_content_parts else "No file content available."
+        
+        # Include generated_patch in the prompt if provided
+        patch_content = ""
+        if generated_patch:
+            patch_content = f"\nHere is the patch we implemented:\n```diff\n{generated_patch}\n```\n"
+
+        # Prepare original_code by combining chunks and file content
+        original_code = ""
+        if chunk_content:
+            original_code = f"Key relevant code chunks:\n{chunk_content}\n\nComplete files:\n{file_content_combined}"
+        else:
+            original_code = file_content_combined
+
+        # Tokenize original code
         original_code_tokens = self.tokenizer.encode(str(original_code))
         system_prompt = swing_patch_system_prompt if role == "patch" else swing_test_system_prompt
         system_tokens = self.tokenizer.encode(system_prompt)
         other_content_tokens = swing_patch_function if role == "patch" else swing_test_function
         other_content_tokens["input"] = {
-            "issue": issue,
-            "file_path": file_path_list
+            "issue": problem_statement,
+            "file_path": file_paths
         }
         if generated_patch is not None:
             other_content_tokens["input"]["generated_patch"] = generated_patch
@@ -173,16 +241,15 @@ class RawDataCodeEditor(CodeEditorBase):
         
         max_available_tokens = self.max_model_len - len(system_tokens) - len(other_content_tokens) - buffer_tokens
         
-        if len(original_code_tokens) > max_available_tokens:
-            truncated_tokens = original_code_tokens[:max_available_tokens]
-            original_code = self.tokenizer.decode(truncated_tokens)
-            print(f'Pruned original_code from {len(original_code_tokens)} to {len(truncated_tokens)} tokens. Now total tokens: {len(truncated_tokens) + len(system_tokens) + len(other_content_tokens) + buffer_tokens}')
+        # We don't truncate here, just calculate the total tokens
+        total_tokens = len(original_code_tokens) + len(system_tokens) + len(other_content_tokens) + buffer_tokens
+        print(f'Total tokens: {total_tokens}, Max model length: {self.max_model_len}')
 
         self.function = copy.deepcopy(swing_patch_function if role == "patch" else swing_test_function)
         self.function["input"] = {
-            "issue": issue,
+            "issue": problem_statement,
             "original_code": original_code,
-            "file_path": file_path_list,
+            "file_path": file_paths,
         }
         if generated_patch is not None:
             self.function["input"]["generated_patch"] = generated_patch
