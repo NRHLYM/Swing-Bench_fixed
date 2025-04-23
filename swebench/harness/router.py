@@ -324,6 +324,7 @@ class ActCITool(CIToolBase):
         #       ...
         #     ]
         #     'jobResult': data.get('jobResult', ''),
+        #     'testResult': [pass number, fail number, ignore number],
         # }
         # for unit test
         results = {}
@@ -340,10 +341,11 @@ class ActCITool(CIToolBase):
                         'jobID': data.get('jobID', ''),
                         'steps': [],
                         'jobResult': None,
+                        'testResult': [0, 0, 0], # for unit tests
                     }
             except json.JSONDecodeError:
                 continue
-        
+
         for data in stdout_list:
             if not data.strip():
                 continue
@@ -355,6 +357,30 @@ class ActCITool(CIToolBase):
                 results[data.get('job')]['steps'].append((step, data.get('stage', None), step_result))
             if job_result:
                 results[data.get('job')]['jobResult'] = job_result
+
+            # parse unit test results
+            target = ["cargo test", "test", "tests"]
+            passed = [r"(\d+)\s*passed", r"(\d+)\s*pass"]
+            failed = [r"(\d+)\s*failed", r"(\d+)\s*fail"]
+            ignored = [r"(\d+)\s*ignored", r"(\d+)\s*ignore"]
+            for tar in target:
+                if tar in data.get('job').lower():
+                    msg = data.get('msg')
+                    if "test result" in msg:
+                        for p in passed:
+                            match = re.search(p, msg, re.IGNORECASE)
+                            if match:
+                                results[data.get('job')]['testResult'][0] += int(match.group(1))
+
+                        for f in failed:
+                            match = re.search(f, msg, re.IGNORECASE)
+                            if match:
+                                results[data.get('job')]['testResult'][1] += int(match.group(1))
+
+                        for i in ignored:
+                            match = re.search(i, msg, re.IGNORECASE)
+                            if match:
+                                results[data.get('job')]['testResult'][2] += int(match.group(1))
 
         return results
 
@@ -377,7 +403,7 @@ class ActCITool(CIToolBase):
                                             "--artifact-server-port " + str(port) + " " +\
                                             "--artifact-server-addr " + "0.0.0.0" + " " +\
                                             "--artifact-server-path " + f"./act/{port}" + " " +\
-                                            "-W " + os.path.join(target_dir, ci[1]) + " " +\
+                                            # "-W " + os.path.join(target_dir, ci[1]) + " " +\
                                             "--json")
 
             process = subprocess.Popen(["act", "-j", value,
@@ -385,7 +411,7 @@ class ActCITool(CIToolBase):
                                         "--artifact-server-port", str(port),
                                         "--artifact-server-addr", "0.0.0.0", 
                                         "--artifact-server-path", f"./act/{port}",
-                                        "-W", os.path.join(target_dir, ci[1]),
+                                        # "-W", os.path.join(target_dir, ci[1]),
                                         "--json"], 
                                     cwd=target_dir,
                                     stdout=subprocess.PIPE,
@@ -409,6 +435,7 @@ class ActCITool(CIToolBase):
             self.result_lock.release()
 
     def _run_act_without_lock(self, ci, target_dir):
+        # for debug
         value = self.ci_dict.get(ci[0])
         if value is not None:
             path = self.config["output_dir"] + "/" + \
@@ -416,12 +443,10 @@ class ActCITool(CIToolBase):
                    value + "_output.json"
             logger.info("Run Act with command: " + "act " + "-j " + value + " " \
                                             "-P " + "ubuntu-latest=catthehacker/ubuntu:full-latest " + \
-                                            "-W " + os.path.join(target_dir, ci[1]) + " " +\
                                             "--json")
 
             process = subprocess.Popen(["act", "-j", value,
                                         "-P", "ubuntu-latest=catthehacker/ubuntu:full-latest",
-                                        "-W", os.path.join(target_dir, ci[1]),
                                         "--json"], 
                                     cwd=target_dir,
                                     stdout=subprocess.PIPE,
@@ -460,7 +485,8 @@ class ActCITool(CIToolBase):
                             "passed": [],
                             "failed": [],
                             "ignored": [],
-                        }
+                        },
+                        "unit_test": [0, 0, 0]
                     }
                     for item in result_json["processed_output"][job]["steps"]:
                         if item[2] == "success":
@@ -474,6 +500,8 @@ class ActCITool(CIToolBase):
                                 "stage": item[1]
                             }
                         )
+                    processed_result[job]["unit_test"] = result_json["processed_output"][job]["testResult"]
+
         return processed_result
 
     def check_env(self):
@@ -492,6 +520,7 @@ class ActCITool(CIToolBase):
 
         self._get_ci_job_name_id_dict(task.target_dir)
         logger.info(f'Collected CI job name and id dict: {self.ci_dict}')
+        logger.info(f'Run ci list: {self.config["ci_name_list"]}')
         threads = []
         for ci in self.config["ci_name_list"]:
             thread = threading.Thread(
@@ -506,7 +535,6 @@ class ActCITool(CIToolBase):
         # for ci in self.config["ci_name_list"]:
         #     self._run_act_without_lock(ci, task.target_dir)
 
-        # os.system("rm -rf " + task.target_dir)
         result = ActCITool._process_result(self.result_list)
         logger.info(f"CI run completed for {self.config['repo']} (ID: {self.config.get('instance_id', 'unknown')})")
         return result
@@ -572,11 +600,11 @@ if __name__ == '__main__':
                      "base_commit": "",
                      "merge_commit": "",
                      "patch": "",
-                     "src_folder": "/home",
+                     "src_folder": "/home/tmpdata/rust-repos",
                      "output_dir": "logs",
-                     "workdir": "/home/testbed",
+                     "workdir": "/home/tmpdata/rust-repos",
                      "apply_patch": False,
-                     "ci_name_list": [['build', '.github/workflows/ci.yml'], ['unit_tests', '.github/workflows/test-rustzx-z80.yml']]})
+                     "ci_name_list": [["Unit tests", 0], ["Typos check", 0]]})
 
     result = act.run_ci(port_pool)
     print(result)

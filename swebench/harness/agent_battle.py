@@ -62,13 +62,16 @@ def construct_base_instance(data: SwingbenchInstance) -> SwingbenchInstance:
 def check_generated_patch(original_patch_result: dict, golden_patch_result: dict, generated_patch_result: dict) -> bool:
 
     # [result format]
-    # test_results = {
+    # "result" = {
     #     "ci_1": {
+    #       "returncode": number,
+    #       "test_results": {
     #         "passed": passed_tests,
     #         "failed": failed_tests,
     #         "ignored": ignored_tests,
-    #         "failure_details": {}
-    #     }, ...
+    #       },
+    #       "unit_test": [passed, failed, ignored]
+    #     },
     # }
 
     failed_rules = set(["FPF", "PPF"])
