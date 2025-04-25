@@ -62,6 +62,8 @@ class PatchGenerator(Generator):
                  retrieve_file_num: int = 20,
                  agent_retry_times: int = 3,
                  max_chunk_num: int = 3,
+                 language = "rust",
+                 chunk_type = "function"
                  ):
         self.workdir = workdir
         self.src_folder = src_folder
@@ -69,7 +71,7 @@ class PatchGenerator(Generator):
         self.retriever = retriever
         self.retrieve_file_num = retrieve_file_num
         self.agent_retry_times = agent_retry_times
-        self.chunker = CodeChunker(language="rust", chunk_type="function")
+        self.chunker = CodeChunker(language=language, chunk_type=chunk_type)
         self.max_chunk_num = max_chunk_num
         self.reranker = CodeReranker()
     def model_name(self):
@@ -104,6 +106,7 @@ class PatchGenerator(Generator):
  
         # Rerank the all code chunks
         print(f"Total chunks before reranking: {len(all_chunks)}")
+        top_chunks = []
         if all_chunks and self.reranker.initialized:
             top_chunks = self.reranker.rerank(all_chunks, data.problem_statement, top_k=self.max_chunk_num)
             print(f"After reranking, selected top {len(top_chunks)} chunks:")
@@ -172,6 +175,8 @@ class TestGenerator(Generator):
                  retrieve_file_num: int = 20,
                  agent_retry_times: int = 3,
                  max_chunk_num: int = 3,
+                 language = "rust",
+                 chunk_type = "function"
                  ):
         self.workdir = workdir
         self.src_folder = src_folder
@@ -179,7 +184,7 @@ class TestGenerator(Generator):
         self.retriever = retriever
         self.retrieve_file_num = retrieve_file_num
         self.agent_retry_times = agent_retry_times
-        self.chunker = CodeChunker(language="rust", chunk_type="function")
+        self.chunker = CodeChunker(language=language, chunk_type=chunk_type)
         self.max_chunk_num = max_chunk_num
         self.reranker = CodeReranker()
     
@@ -211,6 +216,7 @@ class TestGenerator(Generator):
         
         # Rerank the all code chunks
         print(f"Total chunks before reranking: {len(all_chunks)}")
+        top_chunks = []
         if all_chunks and self.reranker.initialized:
             top_chunks = self.reranker.rerank(all_chunks, data.problem_statement, top_k=self.max_chunk_num)
             print(f"After reranking, selected top {len(top_chunks)} chunks:")
