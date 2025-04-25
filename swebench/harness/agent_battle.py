@@ -110,6 +110,7 @@ def check_generated_patch(original_patch_result: dict, golden_patch_result: dict
             result[ci_name] = False
         else:
             result[ci_name] = True
+        print(f'ci_name: {ci_name}, result_str: {result_str}')
 
     return result
 
@@ -147,6 +148,7 @@ def check_generated_test(golden_patch_result: dict, generated_test_result: dict)
             result[ci_name] = False
         else:
             result[ci_name] = True
+        print(f'ci_name: {ci_name}, result_str: {result_str}')
 
     return result
 
