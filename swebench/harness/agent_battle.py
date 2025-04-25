@@ -77,9 +77,15 @@ def check_generated_patch(original_patch_result: dict, golden_patch_result: dict
     failed_rules = set(["FPF", "PPF"])
 
     result = {}
-    if not (original_patch_result.keys() == \
-            golden_patch_result.keys() == \
-            generated_patch_result.keys()):
+    if not (original_patch_result['result'].keys() == \
+            golden_patch_result['result'].keys() == \
+            generated_patch_result['result'].keys()):
+        print('##############################')
+        print('check_generated_patch failed')
+        print(f'original_patch_result: {original_patch_result["result"].keys()}')
+        print(f'golden_patch_result: {golden_patch_result["result"].keys()}')
+        print(f'generated_patch_result: {generated_patch_result["result"].keys()}')
+        print('##############################')
         return None
     ci_name_list = original_patch_result['result'].keys()
 
@@ -146,6 +152,8 @@ def check_generated_test(golden_patch_result: dict, generated_test_result: dict)
 
 
 def is_valid_result(result: dict) -> bool:
+    if result == None:
+        return False
     for each in result:
         if not each:
             return False
@@ -153,7 +161,12 @@ def is_valid_result(result: dict) -> bool:
 
 
 def check_patches(golden_patch_result: dict, patch_with_test_verify_result: dict) -> bool:
-    if not golden_patch_result.keys() == patch_with_test_verify_result.keys():
+    if not golden_patch_result['result'].keys() == patch_with_test_verify_result['result'].keys():
+        print('##############################')
+        print('check_patches failed')
+        print(f'golden_patch_result: {golden_patch_result["result"].keys()}')
+        print(f'patch_with_test_verify_result: {patch_with_test_verify_result["result"].keys()}')
+        print('##############################')
         return [False]
     ci_name_list = golden_patch_result['result'].keys()
     for ci_name in ci_name_list:
@@ -186,6 +199,8 @@ def battle_one_turn(
     """
     patch_agent_score = 0
     test_agent_score = 0
+    verified_patch_agent_score = 0
+    verified_test_agent_score = 0
 
 
     for data in dataset:
@@ -252,9 +267,9 @@ def battle_one_turn(
                                                           patch_with_test_verify_result)
             print(f'patch_with_test_verify_result: {patch_with_test_verify_result}')
             if not is_valid_result(patch_with_test_verify_result):
-                patch_agent_score += 1
+                verified_test_agent_score += 1
             else:
-                test_agent_score += 1
+                verified_patch_agent_score += 1
             
             if DEBUG_ONE_SHOT:
                 break
@@ -262,6 +277,8 @@ def battle_one_turn(
         print(f'test generator: {test_generator.model_name()}')
         print(f'patch_agent_score: {patch_agent_score}')
         print(f'test_agent_score: {test_agent_score}')
+        print(f'verified_patch_agent_score: {verified_patch_agent_score}')
+        print(f'verified_test_agent_score: {verified_test_agent_score}')
         print('-----------------------------------')
         if DEBUG_ONE_SHOT:
             break
@@ -443,9 +460,9 @@ if __name__ == "__main__":
     )
 
     # default models
-    base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1/" #'https://api.ai-gaochao.cn/v1' #"http://147.8.181.248:8000/v1/"#'https://dashscope.aliyuncs.com/compatible-mode/v1/'
-    api_key = "sk-826b874003eb4f309bd65c7a6f0f79b5" #'sk-mbJUXSh916hxnYKO371cD8809919451092B9E170D0544687'#"no-api-key"#'sk-826b874003eb4f309bd65c7a6f0f79b5'
-    model = "qwen-plus" #"/home/mnt/wdxu/models/Qwen2.5-Coder-7B-Instruct"#'qwen-plus'
+    base_url = "http://147.8.181.248:8000/v1/"#'https://dashscope.aliyuncs.com/compatible-mode/v1/'
+    api_key = "no-api-key"#'sk-826b874003eb4f309bd65c7a6f0f79b5'
+    model = "/home/mnt/wdxu/models/Qwen2.5-Coder-7B-Instruct"#'qwen-plus'
     # Local execution args
     parser.add_argument(
         "--workdir", type=str, default=os.environ["SWING_TESTBED_PATH"], help="Work directory"

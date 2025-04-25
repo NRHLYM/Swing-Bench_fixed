@@ -424,6 +424,16 @@ class ActCITool(CIToolBase):
                 "returncode": process.returncode,
                 "processed_output": self._process_act_output(stdout)
             }
+            # dump result to file in specific path
+            # DEBUG
+            print('dump ci result to file {}'.format(os.path.join(target_dir, self.task.instance_id + "_"  + \
+                   value + "_" + \
+                   order + "_output.json")))
+            with open(os.path.join('/mnt/Data/wdxu/github/Swing-Bench/act_logs', self.task.instance_id + "_"  + \
+                   value + "_" + \
+                   order + "_output.json"), 'w', encoding='utf-8') as f:
+                json.dump(result, f, ensure_ascii=False, indent=4)
+            
             result_path = os.path.join(target_dir, path) 
             if not os.path.exists(os.path.dirname(result_path)):
                 os.makedirs(os.path.dirname(result_path))
