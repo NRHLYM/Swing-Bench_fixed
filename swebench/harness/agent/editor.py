@@ -118,6 +118,7 @@ class RawDataCodeEditor(CodeEditorBase):
                 break
         return function_call_args
 
+    # [Deprecated]
     def edit_code(self, issue: str, original_code: str, file_path: str, role: str, retry: int = 1, generated_patch: str = None):
         original_code_tokens = self.tokenizer.encode(str(original_code))
         system_prompt = swing_patch_system_prompt if role == "patch" else swing_test_system_prompt
@@ -215,7 +216,7 @@ class RawDataCodeEditor(CodeEditorBase):
         system_prompt = swing_patch_system_prompt if role == "patch" else swing_test_system_prompt
         system_tokens = self.tokenizer.encode(system_prompt)
 
-        buffer_tokens = 100
+        buffer_tokens = 500
 
         # If we have chunks, prepare that information
         chunk_content = ""
@@ -239,8 +240,9 @@ class RawDataCodeEditor(CodeEditorBase):
                 if start_line and end_line:
                     chunk_content += f"- Lines: {start_line}-{end_line}\n"
                 chunk_content_tokens = self.tokenizer.encode(f"\n```\n{code}\n```\n")
-                if len(original_code_tokens) + len(chunk_content_tokens) > self.max_model_len:
-                    print(f'original_code: {original_code} out of max model length: {self.max_model_len}. Break.')
+                if len(original_code_tokens) + len(chunk_content_tokens) + len(system_tokens) + len(other_content_tokens) + buffer_tokens \
+                    > self.max_model_len:
+                    print(f'original_code_tokens: {len(original_code_tokens)} out of max model length: {self.max_model_len}. Break.')
                     break
                 original_code_tokens = original_code_tokens + chunk_content_tokens
                 chunk_content += f"\n```\n{code}\n```\n"
