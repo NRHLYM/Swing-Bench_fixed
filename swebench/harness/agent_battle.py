@@ -224,6 +224,8 @@ def battle_one_turn(
             
             # Case 1: patch generation and verification.
             patch = patch_generator.generate(data)
+            if patch is None:
+                print(f'patch is None: {patch}')
             generated_patch_result = patch_verifier.verify(data, patch) # results_2
             print(f'generated_patch_result: {generated_patch_result["result"]}')
 

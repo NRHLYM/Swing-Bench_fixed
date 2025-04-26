@@ -113,6 +113,7 @@ class PatchGenerator(Generator):
             print(f"After reranking, selected top {len(top_chunks)} chunks:")
             for i, chunk in enumerate(top_chunks):
                 total_tokens += len(self.code_editor.tokenizer.encode(chunk['code']))
+                print(f'total_tokens: {total_tokens} in collected of max tokens: {self.code_editor.max_model_len}')
                 if total_tokens > self.code_editor.max_model_len:
                     print(f"Total tokens: {total_tokens} > max tokens: {self.code_editor.max_model_len}, break")
                     top_chunks = top_chunks[:i - 1]
@@ -224,12 +225,20 @@ class TestGenerator(Generator):
         # Rerank the all code chunks
         print(f"Total chunks before reranking: {len(all_chunks)}")
         top_chunks = []
+        total_tokens = self.code_editor.default_prompt_token_length
         if all_chunks and self.reranker.initialized:
             top_chunks = self.reranker.rerank(all_chunks, data.problem_statement, top_k=self.max_chunk_num)
             print(f"After reranking, selected top {len(top_chunks)} chunks:")
             for i, chunk in enumerate(top_chunks):
+                total_tokens += len(self.code_editor.tokenizer.encode(chunk['code']))
+                print(f'total_tokens: {total_tokens} in collected of max tokens: {self.code_editor.max_model_len}')
+                if total_tokens > self.code_editor.max_model_len:
+                    print(f"Total tokens: {total_tokens} > max tokens: {self.code_editor.max_model_len}, break")
+                    top_chunks = top_chunks[:i - 1]
+                    break
                 print(f"  Top Chunk {i}: {chunk['type']} - {chunk['name']} (score: {chunk.get('similarity_score', 'N/A')})")
                 print(f"    From file: {chunk['file_path']}")
+                print(f"    Chunk length: {len(chunk['code'])}")
         
         # Build the new input based on the reranked code chunks
         chunk_file_path_list = [chunk['file_path'] for chunk in top_chunks]

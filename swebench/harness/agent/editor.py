@@ -1,6 +1,5 @@
 import tempfile
 import json
-import json_repair
 import os
 import re
 import subprocess
@@ -10,6 +9,7 @@ from abc import abstractmethod
 from swebench.harness.agent.prompt import swing_patch_retry_prompt, swing_test_retry_prompt, swing_patch_function, swing_test_function, swing_patch_system_prompt, swing_test_system_prompt
 
 from transformers import AutoTokenizer
+from json_repair import repair_json
 
 def remove_line_number(content: str) -> str:
     return re.sub(r"^\d+\s", "", content, flags=re.MULTILINE)
@@ -83,18 +83,19 @@ class RawDataCodeEditor(CodeEditorBase):
         pattern = r'<response>\s*(.*?)\s*</response>'
         match = re.search(pattern, content, re.DOTALL)
         if not match:
+            print(f'No match found in content: {content}')
             return None, content
         json_content = match.group(1).strip()
-        try:
-            json_result = json.loads(json_content)
-            return json_result, ""
-        except json.JSONDecodeError:
+        json_result = json.loads(json_content)
+        if json_result is None:
             print('Trying to repair json.')
-            repaired_json = json_repair.repair(json_content)
+            print(f'json_content: {json_content}')
+            repaired_json = repair_json(json_content)
             if repaired_json is '':
                 return None, json_content
             else:
                 return repaired_json, ""
+        return json_result, ""
 
     def _call_api(self, origin_input: str, role: str, retry: int = 1):
         input = origin_input
@@ -197,7 +198,25 @@ class RawDataCodeEditor(CodeEditorBase):
         file_content_parts = []
         for f, c in zip(file_paths, code_snippets):
             file_content_parts.append(f"**file name**: {f}\n\n```\n{c}\n```")
-        
+    
+        # Prepare the other content tokens
+        other_content_tokens = swing_patch_function if role == "patch" else swing_test_function
+        other_content_tokens["input"] = {
+            "issue": problem_statement,
+            "file_path": file_paths
+        }
+        if generated_patch is not None:
+            other_content_tokens["input"]["generated_patch"] = generated_patch
+
+        other_content_tokens = self.tokenizer.encode(json.dumps(other_content_tokens))
+
+        # Tokenize original code
+        original_code_tokens = []
+        system_prompt = swing_patch_system_prompt if role == "patch" else swing_test_system_prompt
+        system_tokens = self.tokenizer.encode(system_prompt)
+
+        buffer_tokens = 100
+
         # If we have chunks, prepare that information
         chunk_content = ""
         if chunks and chunks.get("file_paths") and chunks.get("code_blocks"):
@@ -219,6 +238,11 @@ class RawDataCodeEditor(CodeEditorBase):
                     chunk_content += f"- Type: {chunk_type}, Name: {chunk_name}\n"
                 if start_line and end_line:
                     chunk_content += f"- Lines: {start_line}-{end_line}\n"
+                chunk_content_tokens = self.tokenizer.encode(f"\n```\n{code}\n```\n")
+                if len(original_code_tokens) + len(chunk_content_tokens) > self.max_model_len:
+                    print(f'original_code: {original_code} out of max model length: {self.max_model_len}. Break.')
+                    break
+                original_code_tokens = original_code_tokens + chunk_content_tokens
                 chunk_content += f"\n```\n{code}\n```\n"
         
         # Combine file contents or use a placeholder for empty files
@@ -232,32 +256,18 @@ class RawDataCodeEditor(CodeEditorBase):
         # Prepare original_code by combining chunks and file content
         original_code = ""
         if chunk_content:
-            original_code = f"Key relevant code chunks:\n{chunk_content}\n\nComplete files:\n{file_content_combined}"
+            original_code = f"Key relevant code chunks:\n{chunk_content}\n"
         else:
             original_code = file_content_combined
-
-        # Tokenize original code
-        original_code_tokens = self.tokenizer.encode(str(original_code))
-        system_prompt = swing_patch_system_prompt if role == "patch" else swing_test_system_prompt
-        system_tokens = self.tokenizer.encode(system_prompt)
-        other_content_tokens = swing_patch_function if role == "patch" else swing_test_function
-        other_content_tokens["input"] = {
-            "issue": problem_statement,
-            "file_path": file_paths
-        }
-        if generated_patch is not None:
-            other_content_tokens["input"]["generated_patch"] = generated_patch
-
-        other_content_tokens = self.tokenizer.encode(json.dumps(other_content_tokens))
-
-        buffer_tokens = 100
-        
-        max_available_tokens = self.max_model_len - len(system_tokens) - len(other_content_tokens) - buffer_tokens
         
         # We don't truncate here, just calculate the total tokens
         total_tokens = len(original_code_tokens) + len(system_tokens) + len(other_content_tokens) + buffer_tokens
-        print(f'Total tokens: {total_tokens}, Max model length: {self.max_model_len}')
 
+        print(f'Total tokens: {total_tokens}, Max model length: {self.max_model_len}')
+        print(f'original_code length: {len(original_code_tokens)}')
+        print(f'system_tokens length: {len(system_tokens)}')
+        print(f'other_content_tokens length: {len(other_content_tokens)}')
+        print(f'buffer_tokens: {buffer_tokens}')
         self.function = copy.deepcopy(swing_patch_function if role == "patch" else swing_test_function)
         self.function["input"] = {
             "issue": problem_statement,
