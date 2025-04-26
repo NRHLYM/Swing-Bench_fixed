@@ -87,9 +87,9 @@ class PatchGenerator(Generator):
         print(f"len of code_snippet: {len(code_snippet)}")
         print(f"code_snippet.keys: {code_snippet.keys()}")
         print(f"len(code_snippet['hits']): {len(code_snippet['hits'])}")
-        print(f"code_snippet[hits].keys: {code_snippet['hits'][0].keys()}")
-        print(f"code_snippet[hits][0]: {code_snippet['hits'][0]}")
-        print(f"code_snippet[hits][0]['docid']: {code_snippet['hits'][0]['docid']}")
+        # print(f"code_snippet[hits].keys: {code_snippet['hits'][0].keys()}")
+        # print(f"code_snippet[hits][0]: {code_snippet['hits'][0]}")
+        # print(f"code_snippet[hits][0]['docid']: {code_snippet['hits'][0]['docid']}")
         
         all_chunks = []
         # Chunk the code snippet for each hit
@@ -113,6 +113,7 @@ class PatchGenerator(Generator):
             for i, chunk in enumerate(top_chunks):
                 print(f"  Top Chunk {i}: {chunk['type']} - {chunk['name']} (score: {chunk.get('similarity_score', 'N/A')})")
                 print(f"    From file: {chunk['file_path']}")
+                print(f"    Chunk length: {len(chunk['code'])}")
         
         # Build the new input based on the reranked code chunks
         chunk_file_path_list = [chunk['file_path'] for chunk in top_chunks]
@@ -120,7 +121,12 @@ class PatchGenerator(Generator):
         
         # Build the metadata information related to the code chunks to help the model understand the context
         context_info = []
+        total_tokens = self.code_editor.default_prompt_token_length
         for chunk in top_chunks:
+            total_tokens += len(self.code_editor.tokenizer.encode(chunk['code']))
+            if total_tokens > self.code_editor.max_model_len:
+                print(f"Total tokens: {total_tokens} > max tokens: {self.code_editor.max_model_len}, break")
+                break
             context_info.append(f"File: {chunk['file_path']}\n"
                               f"Type: {chunk['type']}\n"
                               f"Name: {chunk['name']}\n"
@@ -198,8 +204,8 @@ class TestGenerator(Generator):
         print(f"self.retrieve_file_num: {self.retrieve_file_num}")
         print(f"len of code_snippet: {len(code_snippet)}")
         print(f"code_snippet.keys: {code_snippet.keys()}")
-        print(f"code_snippet[hits].keys: {code_snippet['hits'][0].keys()}")
-        print(f"code_snippet[hits][0]: {code_snippet['hits'][0]}")
+        # print(f"code_snippet[hits].keys: {code_snippet['hits'][0].keys()}")
+        # print(f"code_snippet[hits][0]: {code_snippet['hits'][0]}")
         
         all_chunks = []
         # Chunk the code snippet for each hit

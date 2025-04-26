@@ -53,10 +53,12 @@ class CodeEditorBase:
 
 
 class RawDataCodeEditor(CodeEditorBase):
-    def __init__(self, api_key: str, base_url: str, model: str, tok_model: str = None):
+    def __init__(self, api_key: str, base_url: str, model: str, tok_model: str = None, role: str = "patch"):
         self.client = OpenAI(api_key=api_key, base_url=base_url)
         self.model = model
-        self.max_model_len = 4096
+        self.max_model_len = 16384
+        self.default_prompt_token_length = 0
+        self.role = role
         if tok_model is not None:
             self.tokenizer = AutoTokenizer.from_pretrained(tok_model)
         else:
@@ -69,6 +71,13 @@ class RawDataCodeEditor(CodeEditorBase):
             if hasattr(each, "max_model_len"):
                 self.max_model_len = int(each.max_model_len)
             break
+
+        system_prompt = swing_patch_system_prompt if self.role == "patch" else swing_test_system_prompt
+        system_tokens = self.tokenizer.encode(system_prompt)
+        other_content_tokens = swing_patch_function if self.role == "patch" else swing_test_function
+        other_content_tokens["input"] = {}
+        buffer_tokens = 100
+        self.default_prompt_token_length = len(self.tokenizer.encode(str(json.dumps(other_content_tokens)))) + buffer_tokens
 
     def _parse_structured_data(self, content: str) -> dict:
         pattern = r'<response>\s*(.*?)\s*</response>'

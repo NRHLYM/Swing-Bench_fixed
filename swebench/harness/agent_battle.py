@@ -315,14 +315,18 @@ def battle(
             code_editor=code_editor_lhs,
             retriever=retriever,
             retrieve_file_num=retrieve_file_num,
-            agent_retry_times=agent_retry_times
+            agent_retry_times=agent_retry_times,
+            max_chunk_num=16,
+            chunk_type='block'
         )
         test_generator = TestGenerator(workdir=workdir, 
             src_folder=src_folder, 
             code_editor=code_editor_rhs,
             retriever=retriever,
             retrieve_file_num=retrieve_file_num,
-            agent_retry_times=agent_retry_times
+            agent_retry_times=agent_retry_times,
+            max_chunk_num=16,
+            chunk_type='block'
         )
         return patch_generator, test_generator, patch_verifier, test_verifier
 
