@@ -107,10 +107,16 @@ class PatchGenerator(Generator):
         # Rerank the all code chunks
         print(f"Total chunks before reranking: {len(all_chunks)}")
         top_chunks = []
+        total_tokens = self.code_editor.default_prompt_token_length
         if all_chunks and self.reranker.initialized:
             top_chunks = self.reranker.rerank(all_chunks, data.problem_statement, top_k=self.max_chunk_num)
             print(f"After reranking, selected top {len(top_chunks)} chunks:")
             for i, chunk in enumerate(top_chunks):
+                total_tokens += len(self.code_editor.tokenizer.encode(chunk['code']))
+                if total_tokens > self.code_editor.max_model_len:
+                    print(f"Total tokens: {total_tokens} > max tokens: {self.code_editor.max_model_len}, break")
+                    top_chunks = top_chunks[:i - 1]
+                    break
                 print(f"  Top Chunk {i}: {chunk['type']} - {chunk['name']} (score: {chunk.get('similarity_score', 'N/A')})")
                 print(f"    From file: {chunk['file_path']}")
                 print(f"    Chunk length: {len(chunk['code'])}")
@@ -121,12 +127,7 @@ class PatchGenerator(Generator):
         
         # Build the metadata information related to the code chunks to help the model understand the context
         context_info = []
-        total_tokens = self.code_editor.default_prompt_token_length
         for chunk in top_chunks:
-            total_tokens += len(self.code_editor.tokenizer.encode(chunk['code']))
-            if total_tokens > self.code_editor.max_model_len:
-                print(f"Total tokens: {total_tokens} > max tokens: {self.code_editor.max_model_len}, break")
-                break
             context_info.append(f"File: {chunk['file_path']}\n"
                               f"Type: {chunk['type']}\n"
                               f"Name: {chunk['name']}\n"
