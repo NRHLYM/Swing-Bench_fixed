@@ -26,13 +26,13 @@ def extract_repo_commits(dataset_path: str, sub_dataset_identifier: str, split: 
     return repo_commits
 
 
-def check_repo_exists(repo: str, repo_path: str) -> None:
+def check_repo_exists(repo: str, repo_path: str, github_base_url: str) -> None:
     print(f'Checking repo existence: {repo} at {repo_path}')
     # check if the original repo is exists
     if not os.path.exists(repo):
         print(f'repo {repo} does not exist. Cloning...')
         repo_owner, repo_name = repo.split("/")
-        repo_url = f"https://github.com.psmoe.com/{repo}"
+        repo_url = f"{github_base_url}/{repo}"
         subprocess.run(["git", "clone", repo_url, repo_path, "--recursive"])
 
 
@@ -101,6 +101,7 @@ def build_repo_index(
     repo_root_dir: str,
     document_encoding_style: str,
     python: str,
+    github_base_url: str,
 ):
     document_encoding_func = DOCUMENT_ENCODING_FUNCTIONS[document_encoding_style]
     
@@ -108,7 +109,7 @@ def build_repo_index(
     index_root.mkdir(parents=True, exist_ok=True)
     
     repo_dir = os.path.join(repo_root_dir, repo.replace('/', '__'))
-    check_repo_exists(repo, repo_dir)
+    check_repo_exists(repo, repo_dir, github_base_url)
     
     for commit in tqdm(commits, desc=f"Building indexes for {repo}"):
         commit_index_path = index_root / commit
@@ -224,6 +225,7 @@ def build_repo_index(
 #         shutil.rmtree(repo_dir)
 
 
+# NOTE(wdxu): don't forget to clean ~/.cache/huggingface/datasets/ if you modified the dataset locally.
 def main():
     import argparse
     parser = argparse.ArgumentParser()
@@ -240,6 +242,8 @@ def main():
                       help="Sub dataset identifier to build the indexes")
     parser.add_argument("--split", type=str, default=None,
                       help="Split to build the indexes")
+    parser.add_argument("--github_base_url", type=str, default="https://github.com",
+                      help="Github base url")
     args = parser.parse_args()
     repo_commits = extract_repo_commits(args.dataset_path, args.sub_dataset_identifier, args.split)
     
@@ -254,6 +258,7 @@ def main():
             repo_root_dir=args.repo_root_dir,
             document_encoding_style=args.document_encoding_style,
             python=python,
+            github_base_url=args.github_base_url,
         )
 
 
