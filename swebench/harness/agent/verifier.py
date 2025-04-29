@@ -82,7 +82,7 @@ class PatchGenerator(Generator):
         Generate a patch for the given Swingbench instance.
         """
         print("Retrieving data files from retriever to data:{}".format(data))
-        code_snippet = self.retriever.retrieve(data, k=self.retrieve_file_num)
+        code_snippet = self.retriever.retrieve(data, self.src_folder, k=self.retrieve_file_num)
         print(f"self.retrieve_file_num: {self.retrieve_file_num}")
         print(f"len of code_snippet: {len(code_snippet)}")
         print(f"code_snippet.keys: {code_snippet.keys()}")
@@ -202,7 +202,7 @@ class TestGenerator(Generator):
     def generate(self, data: SwingbenchInstance, generated_patch: str = None):
         # TODO(wdxu): remove this hack.
         data.hints_text += "test, testcase, unittest."
-        code_snippet = self.retriever.retrieve(data, k=self.retrieve_file_num)
+        code_snippet = self.retriever.retrieve(data, self.src_folder, k=self.retrieve_file_num)
         print(f"self.retrieve_file_num: {self.retrieve_file_num}")
         print(f"len of code_snippet: {len(code_snippet)}")
         print(f"code_snippet.keys: {code_snippet.keys()}")
