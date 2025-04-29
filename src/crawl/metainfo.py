@@ -877,167 +877,216 @@ class JavaMavenCrawler(BasePackageCrawler):
 class CPlusPlusConanCrawler(BasePackageCrawler):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        # Since the Conan API is not easily accessible, use a static list of popular packages
-        self.popular_packages = [
-            {
-                "name": "boost",
-                "description": "Free peer-reviewed portable C++ source libraries",
-                "versions": ["1.83.0"],
-                "license": "BSL-1.0",
-                "website": "https://www.boost.org",
-                "downloads": 100000
-            },
-            {
-                "name": "zlib",
-                "description": "A massively spiffy yet delicately unobtrusive compression library",
-                "versions": ["1.2.13"],
-                "license": "Zlib",
-                "website": "https://zlib.net",
-                "downloads": 90000
-            },
-            {
-                "name": "eigen",
-                "description": "C++ template library for linear algebra",
-                "versions": ["3.4.0"],
-                "license": "MPL-2.0",
-                "website": "https://eigen.tuxfamily.org",
-                "downloads": 80000
-            },
-            {
-                "name": "fmt",
-                "description": "A modern formatting library",
-                "versions": ["10.0.0"],
-                "license": "MIT",
-                "website": "https://fmt.dev",
-                "downloads": 70000
-            },
-            {
-                "name": "catch2",
-                "description": "A modern, C++-native, test framework for unit-tests",
-                "versions": ["3.3.2"],
-                "license": "BSL-1.0",
-                "website": "https://github.com/catchorg/Catch2",
-                "downloads": 60000
-            },
-            {
-                "name": "nlohmann_json",
-                "description": "JSON for Modern C++",
-                "versions": ["3.11.2"],
-                "license": "MIT",
-                "website": "https://github.com/nlohmann/json",
-                "downloads": 50000
-            },
-            {
-                "name": "opencv",
-                "description": "Open Source Computer Vision Library",
-                "versions": ["4.7.0"],
-                "license": "Apache-2.0",
-                "website": "https://opencv.org",
-                "downloads": 40000
-            },
-            {
-                "name": "openssl",
-                "description": "Secure Socket Layer library",
-                "versions": ["3.1.0"],
-                "license": "OpenSSL",
-                "website": "https://www.openssl.org",
-                "downloads": 30000
-            },
-            {
-                "name": "protobuf",
-                "description": "Protocol Buffers - Google's data interchange format",
-                "versions": ["3.21.12"],
-                "license": "BSD-3-Clause",
-                "website": "https://developers.google.com/protocol-buffers",
-                "downloads": 25000
-            },
-            {
-                "name": "poco",
-                "description": "Modern, powerful open source C++ class libraries",
-                "versions": ["1.12.4"],
-                "license": "BSL-1.0",
-                "website": "https://pocoproject.org",
-                "downloads": 20000
-            },
-            {
-                "name": "spdlog",
-                "description": "Fast C++ logging library",
-                "versions": ["1.11.0"],
-                "license": "MIT",
-                "website": "https://github.com/gabime/spdlog",
-                "downloads": 15000
-            },
-            {
-                "name": "sqlite3",
-                "description": "Self-contained, serverless, zero-configuration SQL database engine",
-                "versions": ["3.41.2"],
-                "license": "Public Domain",
-                "website": "https://www.sqlite.org",
-                "downloads": 10000
-            }
-        ]
+    
+    def fetch_popular_packages(self) -> List[str]:
+        popular_packages = []
+        seen_repos = set()  # Track unique repositories
+        page = 1
+        
+        try:
+            # Use GitHub API to get popular C++ repositories
+            while len(popular_packages) < self.max_packages:
+                github_search_url = "https://api.github.com/search/repositories"
+                params = {
+                    "q": "language:cpp stars:>100",
+                    "sort": "stars",
+                    "order": "desc",
+                    "per_page": 100,
+                    "page": page
+                }
+                
+                # Add GitHub token for authentication
+                token = next(self.token_iterator)
+                headers = {"Accept": "application/vnd.github.v3+json"}
+                if token:
+                    headers["Authorization"] = f"token {token}"
+                
+                self.logger.info(f"Fetching page {page} of GitHub C++ repositories...")
+                response = self.make_request(github_search_url, params=params, headers=headers)
+                
+                if not response or not isinstance(response, dict) or "items" not in response:
+                    self.logger.error(f"Invalid response from GitHub API: {response}")
+                    break
+                
+                items = response.get("items", [])
+                if not items:  # No more results
+                    self.logger.info("No more repositories found.")
+                    break
+                
+                for item in items:
+                    full_name = item.get("full_name")
+                    if full_name:
+                        repo_path = f"github.com/{full_name}"
+                        if repo_path not in seen_repos:
+                            seen_repos.add(repo_path)
+                            popular_packages.append(repo_path)
+                            stars = item.get("stargazers_count", 0)
+                            self.logger.info(f"Found C++ package: {repo_path} (Stars: {stars})")
+                            
+                            if len(popular_packages) >= self.max_packages:
+                                break
+                
+                # Check if we've reached the end of results
+                total_count = response.get("total_count", 0)
+                if page * 100 >= total_count:
+                    self.logger.info(f"Reached end of results ({total_count} total repositories)")
+                    break
+                
+                page += 1
+                # Be nice to GitHub API rate limits
+                time.sleep(1.5)
+            
+            self.logger.info(f"Found total of {len(popular_packages)} unique C++ packages")
+            return popular_packages[:self.max_packages]
+            
+        except Exception as e:
+            self.logger.error(f"Error fetching popular C++ packages: {e}")
+            self.logger.error(traceback.format_exc())
+            return []
+    
+    def fetch_package_details(self, package_path: str) -> Dict[str, Any]:
+        package_data = {
+            "path": package_path,
+            "name": package_path.split("/")[-1],
+            "description": None,
+            "stars": 0,
+            "repository": f"https://{package_path}",
+            "version": "",
+            "license": ""
+        }
+        
+        # If the package is from GitHub, get repository information directly
+        if package_path.startswith("github.com/"):
+            try:
+                # Extract repository path (owner/repo)
+                repo_path = "/".join(package_path.split("/")[1:3])  # Take first two parts after github.com
+                if repo_path:
+                    github_api_url = f"https://api.github.com/repos/{repo_path}"
+                    
+                    # Add GitHub token for authentication
+                    token = next(self.token_iterator)
+                    headers = {"Accept": "application/vnd.github.v3+json"}
+                    if token:
+                        headers["Authorization"] = f"token {token}"
+                    
+                    self.logger.info(f"Fetching GitHub data from: {github_api_url}")
+                    github_response = self.make_request(github_api_url, headers=headers)
+                    
+                    if isinstance(github_response, dict):
+                        package_data["stars"] = github_response.get("stargazers_count", 0)
+                        package_data["description"] = github_response.get("description")
+                        package_data["repository"] = github_response.get("html_url", package_data["repository"])
+                        package_data["license"] = github_response.get("license", {}).get("name")
+                        package_data["created_at"] = github_response.get("created_at")
+                        package_data["updated_at"] = github_response.get("updated_at")
+                        package_data["homepage"] = github_response.get("homepage")
+                        package_data["language"] = github_response.get("language")
+                        
+                        # Get topics (keywords)
+                        topics_url = f"{github_api_url}/topics"
+                        topics_response = self.make_request(topics_url, headers=headers)
+                        if isinstance(topics_response, dict) and "names" in topics_response:
+                            package_data["keywords"] = topics_response.get("names", [])
+                            
+                        # Get owner information
+                        owner = github_response.get("owner", {})
+                        if owner and "login" in owner:
+                            package_data["authors"] = [owner.get("login")]
+                            
+                        # Try to extract version information from CMakeLists.txt, package.json, or other common C++ package files
+                        try:
+                            # Check for CMakeLists.txt
+                            cmake_url = f"{github_api_url}/contents/CMakeLists.txt"
+                            cmake_headers = headers.copy()
+                            cmake_headers["Accept"] = "application/vnd.github.v3.raw"
+                            
+                            self.logger.debug(f"Checking for CMakeLists.txt at: {cmake_url}")
+                            cmake_response = self.session.get(cmake_url, headers=cmake_headers, timeout=self.timeout)
+                            
+                            if cmake_response.status_code == 200:
+                                cmake_content = cmake_response.text
+                                
+                                # Extract version from CMakeLists.txt
+                                version_match = re.search(r'set\s*\(\s*VERSION\s+([0-9]+\.[0-9]+\.[0-9]+)\s*\)', cmake_content, re.IGNORECASE)
+                                if version_match:
+                                    package_data["version"] = version_match.group(1)
+                                else:
+                                    # Try another common pattern
+                                    version_match = re.search(r'project\s*\([^\)]*VERSION\s+([0-9]+\.[0-9]+\.[0-9]+)', cmake_content, re.IGNORECASE)
+                                    if version_match:
+                                        package_data["version"] = version_match.group(1)
+                        except requests.RequestException:
+                            # Silently ignore request exceptions for CMakeLists.txt
+                            pass
+            except Exception as e:
+                self.logger.error(f"Error fetching GitHub data: {e}")
+        
+        return package_data
     
     def process_package(self, package_data: Dict) -> PackageData:
-        # Extract information from the static package data
-        name = package_data.get("name", "")
-        description = package_data.get("description", "")
-        
-        # Get version and license
-        versions = package_data.get("versions", [])
-        latest_version = versions[0] if versions else ""
-        
-        license_str = package_data.get("license", "")
-        if isinstance(license_str, list):
-            license_str = ", ".join(license_str)
-        
         return PackageData(
-            id=name,
-            name=name,
+            id=package_data.get("path", ""),
+            name=package_data.get("name", ""),
             language="c++",
-            description=description,
-            downloads=package_data.get("downloads", 0),
-            stars=0,  # Not provided
-            created_at=None,  # Not provided
-            updated_at=None,  # Not provided
-            version=latest_version,
-            repository=package_data.get("repository") or package_data.get("website"),
-            license=license_str,
-            homepage=package_data.get("website"),
-            keywords=[],  # Not typically provided
-            authors=[]  # Not easily extracted
+            description=package_data.get("description", ""),
+            downloads=0,  # Not typically available for C++ packages
+            stars=package_data.get("stars", 0),
+            created_at=package_data.get("created_at"),
+            updated_at=package_data.get("updated_at"),
+            version=package_data.get("version", ""),
+            repository=package_data.get("repository", ""),
+            license=package_data.get("license", ""),
+            homepage=package_data.get("homepage", ""),
+            keywords=package_data.get("keywords", []),
+            authors=package_data.get("authors", [])
         )
     
     def crawl_all(self):
         try:
-            packages = []
-            self.logger.info("Using static list of popular C++ packages")
+            # Fetch list of popular packages
+            popular_packages = self.fetch_popular_packages()
+            self.logger.info(f"Found {len(popular_packages)} C++ packages")
             
-            # Use the static list of popular packages
-            for package_data in self.popular_packages[:self.max_packages]:
+            # Process packages in batches using parallel processing
+            batch_size = 10
+            num_workers = min(10, len(popular_packages))
+            
+            for i in range(0, len(popular_packages), batch_size):
+                batch = popular_packages[i:i+batch_size]
+                self.logger.info(f"Processing batch {i//batch_size + 1}/{(len(popular_packages) + batch_size - 1)//batch_size}")
+                
+                packages = []
+                
+                # Process packages in parallel
+                with ThreadPoolExecutor(max_workers=num_workers) as executor:
+                    futures = {executor.submit(self.fetch_package_details, package_path): package_path for package_path in batch}
+                    
+                    for future in as_completed(futures):
+                        package_path = futures[future]
+                        try:
+                            package_data = future.result()
+                            packages.append(self.process_package(package_data))
+                            self.logger.info(f"Processed {package_path}")
+                        except Exception as e:
+                            self.logger.error(f"Error processing {package_path}: {e}")
+                
+                # Save batch of packages
+                if packages:
+                    self.save_package_batch(packages, "c++")
+                
+                # Sleep a bit between batches to avoid overwhelming APIs
+                time.sleep(2)
+                
                 if self.total_collected >= self.max_packages:
                     break
                 
-                self.logger.info(f"Processing C++ package: {package_data['name']}")
-                packages.append(self.process_package(package_data))
-                
-                if len(packages) >= 5:  # Save in smaller batches
-                    self.save_package_batch(packages, "c++")
-                    packages = []
-                
-                time.sleep(0.1)  # Short delay between processing
-            
-            # Save any remaining packages
-            if packages:
-                self.save_package_batch(packages, "c++")
-                
         except Exception as e:
             self.logger.error(f"Error during crawling C++ packages: {e}")
-            import traceback
             self.logger.error(traceback.format_exc())
         
         self.logger.info(f"C++ packages crawling completed. Total collected: {self.total_collected}")
         return self.total_collected
-    
+
 class PHPPackageCrawler(BasePackageCrawler):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
