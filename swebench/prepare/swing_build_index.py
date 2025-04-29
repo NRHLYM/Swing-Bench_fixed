@@ -157,9 +157,6 @@ def build_repo_index(
             logger.error(str(e))
             continue
 
-    if os.path.exists(repo_dir):
-        print(f'Remove finished {repo_dir}.')
-        shutil.rmtree(repo_dir)
         
 # def build_repo_index(
 #     repo: str,
