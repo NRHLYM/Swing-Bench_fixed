@@ -38,7 +38,8 @@ class BasePackageCrawler:
         retry_delay: float = 1.0,
         timeout: int = 30,
         max_packages: int = 5000,
-        github_tokens: Optional[List[str]] = None
+        github_tokens: Optional[List[str]] = None,
+        log_level: int = logging.INFO
     ):
         self.output_dir = output_dir
         self.max_retries = max_retries
@@ -51,14 +52,14 @@ class BasePackageCrawler:
         # Setup GitHub tokens
         self.github_tokens = github_tokens or os.getenv("GH_TOKENS", "").split(",")
         if not self.github_tokens or not any(self.github_tokens):
-            print("No GitHub tokens provided. API rate limits will be restricted.")
+            self.logger.warning("No GitHub tokens provided. API rate limits will be restricted.")
             self.github_tokens = [""]  # Use empty token as fallback
         self.token_iterator = cycle(self.github_tokens)  # Create a round-robin iterator for tokens
         
         os.makedirs(output_dir, exist_ok=True)
         
         logging.basicConfig(
-            level=logging.INFO,
+            level=log_level,
             format='%(asctime)s - %(levelname)s - %(message)s'
         )
         self.logger = logging.getLogger(__name__)
@@ -213,13 +214,7 @@ class PythonPyPICrawler(BasePackageCrawler):
             return top_packages
         except Exception as e:
             self.logger.error(f"Error fetching top Python packages: {e}")
-            
-            # Fallback to a list of known popular packages
-            fallback_packages = [
-                "numpy", "pandas", "requests", "matplotlib", "django", "flask", 
-                "tensorflow", "pytorch", "scipy", "scikit-learn"
-            ]
-            return fallback_packages[:min(len(fallback_packages), self.max_packages)]
+            return []
     
     def process_package(self, package_data: Dict) -> PackageData:
         info = package_data.get("info", {})
@@ -621,130 +616,260 @@ class GoPackageCrawler(BasePackageCrawler):
 class JavaMavenCrawler(BasePackageCrawler):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        # Updated Maven Repository API with correct URL
-        self.search_url = "https://search.maven.org/solrsearch/select"
+        # Maven Repository URL
+        self.base_url = "https://search.maven.org"
     
-    def search_packages(self, page: int = 0) -> Dict:
-        params = {
-            "q": "a:*",  # Search for artifacts with any name
-            "rows": 20,
-            "start": page * 20,
-            "wt": "json"
+    def fetch_popular_packages(self) -> List[str]:
+        popular_packages = []
+        seen_repos = set()  # Track unique repositories
+        page = 1
+        
+        try:
+            # Use GitHub API to get popular Java repositories
+            while len(popular_packages) < self.max_packages:
+                github_search_url = "https://api.github.com/search/repositories"
+                params = {
+                    "q": "language:java stars:>100",
+                    "sort": "stars",
+                    "order": "desc",
+                    "per_page": 100,
+                    "page": page
+                }
+                
+                # Add GitHub token for authentication
+                token = next(self.token_iterator)
+                headers = {"Accept": "application/vnd.github.v3+json"}
+                if token:
+                    headers["Authorization"] = f"token {token}"
+                
+                self.logger.info(f"Fetching page {page} of GitHub Java repositories...")
+                response = self.make_request(github_search_url, params=params, headers=headers)
+                
+                if not response or not isinstance(response, dict) or "items" not in response:
+                    self.logger.error(f"Invalid response from GitHub API: {response}")
+                    break
+                
+                items = response.get("items", [])
+                if not items:  # No more results
+                    self.logger.info("No more repositories found.")
+                    break
+                
+                for item in items:
+                    full_name = item.get("full_name")
+                    if full_name:
+                        repo_path = f"github.com/{full_name}"
+                        if repo_path not in seen_repos:
+                            seen_repos.add(repo_path)
+                            popular_packages.append(repo_path)
+                            stars = item.get("stargazers_count", 0)
+                            self.logger.info(f"Found Java package: {repo_path} (Stars: {stars})")
+                            
+                            if len(popular_packages) >= self.max_packages:
+                                break
+                
+                # Check if we've reached the end of results
+                total_count = response.get("total_count", 0)
+                if page * 100 >= total_count:
+                    self.logger.info(f"Reached end of results ({total_count} total repositories)")
+                    break
+                
+                page += 1
+                # Be nice to GitHub API rate limits
+                time.sleep(1.5)
+            
+            self.logger.info(f"Found total of {len(popular_packages)} unique Java packages")
+            return popular_packages[:self.max_packages]
+            
+        except Exception as e:
+            self.logger.error(f"Error fetching popular Java packages: {e}")
+            self.logger.error(traceback.format_exc())
+            return []
+    
+    def fetch_package_details(self, package_path: str) -> Dict[str, Any]:
+        package_data = {
+            "path": package_path,
+            "name": package_path.split("/")[-1],
+            "description": None,
+            "stars": 0,
+            "repository": f"https://{package_path}",
+            "version": "",
+            "license": ""
         }
-        response = self.make_request(self.search_url, params)
-        if not response:
-            self.logger.error("Failed to fetch Maven packages from search API")
-        return response
+        
+        # If the package is from GitHub, get repository information directly
+        if package_path.startswith("github.com/"):
+            try:
+                # Extract repository path (owner/repo)
+                repo_path = "/".join(package_path.split("/")[1:3])  # Take first two parts after github.com
+                if repo_path:
+                    github_api_url = f"https://api.github.com/repos/{repo_path}"
+                    
+                    # Add GitHub token for authentication
+                    token = next(self.token_iterator)
+                    headers = {"Accept": "application/vnd.github.v3+json"}
+                    if token:
+                        headers["Authorization"] = f"token {token}"
+                    
+                    self.logger.info(f"Fetching GitHub data from: {github_api_url}")
+                    github_response = self.make_request(github_api_url, headers=headers)
+                    
+                    if isinstance(github_response, dict):
+                        package_data["stars"] = github_response.get("stargazers_count", 0)
+                        package_data["description"] = github_response.get("description")
+                        package_data["repository"] = github_response.get("html_url", package_data["repository"])
+                        package_data["license"] = github_response.get("license", {}).get("name")
+                        package_data["created_at"] = github_response.get("created_at")
+                        package_data["updated_at"] = github_response.get("updated_at")
+                        package_data["homepage"] = github_response.get("homepage")
+                        package_data["language"] = github_response.get("language")
+                        
+                        # Get topics (keywords)
+                        topics_url = f"{github_api_url}/topics"
+                        topics_response = self.make_request(topics_url, headers=headers)
+                        if isinstance(topics_response, dict) and "names" in topics_response:
+                            package_data["keywords"] = topics_response.get("names", [])
+                            
+                        # Get owner information
+                        owner = github_response.get("owner", {})
+                        if owner and "login" in owner:
+                            package_data["authors"] = [owner.get("login")]
+                            
+                        # Try to fetch pom.xml for more info - quietly handle 404 errors
+                        try:
+                            # Check for pom.xml in root directory
+                            contents_url = f"{github_api_url}/contents/pom.xml"
+                            contents_headers = headers.copy()
+                            contents_headers["Accept"] = "application/vnd.github.v3.raw"
+                            
+                            self.logger.debug(f"Checking for pom.xml at: {contents_url}")
+                            contents_response = self.session.get(contents_url, headers=contents_headers, timeout=self.timeout)
+                            
+                            if contents_response.status_code == 200:
+                                pom_content = contents_response.text
+                                
+                                # Extract version
+                                version_match = re.search(r"<version>(.*?)</version>", pom_content)
+                                if version_match:
+                                    package_data["version"] = version_match.group(1)
+                                
+                                # Extract artifact ID if name is not already set
+                                if package_data["name"] == repo_path.split("/")[-1]:
+                                    artifact_match = re.search(r"<artifactId>(.*?)</artifactId>", pom_content)
+                                    if artifact_match:
+                                        package_data["name"] = artifact_match.group(1)
+                                        
+                                # Extract group ID
+                                group_match = re.search(r"<groupId>(.*?)</groupId>", pom_content)
+                                if group_match:
+                                    group_id = group_match.group(1)
+                                    # Add to keywords for better identification
+                                    if "keywords" not in package_data:
+                                        package_data["keywords"] = []
+                                    package_data["keywords"].append(f"groupId:{group_id}")
+                        except requests.RequestException:
+                            # Silently ignore request exceptions for pom.xml
+                            pass
+            except Exception as e:
+                self.logger.error(f"Error fetching GitHub data: {e}")
+        
+        # Try to fetch Maven metadata if we can guess the format
+        try:
+            if package_path.startswith("github.com/"):
+                repo_parts = package_path.split("/")[1:3]
+                if len(repo_parts) >= 2:
+                    # Try common formats for Maven groupId/artifactId
+                    possible_formats = [
+                        # Format: com.github.{owner}.{repo}
+                        f"com.github.{repo_parts[0]}.{repo_parts[1]}",
+                        # Format: io.github.{owner}.{repo}
+                        f"io.github.{repo_parts[0]}.{repo_parts[1]}",
+                        # Format: {owner}.{repo}
+                        f"{repo_parts[0]}.{repo_parts[1]}",
+                        # Format: org.{owner}.{repo}
+                        f"org.{repo_parts[0]}.{repo_parts[1]}"
+                    ]
+                    
+                    for group_id in possible_formats:
+                        try:
+                            url = f"https://search.maven.org/solrsearch/select?q=g:%22{group_id}%22&rows=1&wt=json"
+                            response = self.make_request(url)
+                            
+                            if isinstance(response, dict) and "response" in response:
+                                docs = response.get("response", {}).get("docs", [])
+                                if docs:
+                                    doc = docs[0]
+                                    if "a" in doc:  # artifactId
+                                        package_data["name"] = doc["a"]
+                                    if "latestVersion" in doc:
+                                        package_data["version"] = doc["latestVersion"]
+                                    break  # Found Maven data
+                        except:
+                            continue
+        except Exception as e:
+            self.logger.debug(f"Error fetching Maven data: {e}")
+        
+        return package_data
     
     def process_package(self, package_data: Dict) -> PackageData:
-        # Extract basic information from search response
-        doc = package_data.get('doc', {})
-        
-        group_id = doc.get('g', '')
-        artifact_id = doc.get('a', '')
-        maven_id = f"{group_id}:{artifact_id}"
-        
-        # Get version and other metadata
-        version = doc.get('latestVersion', '') or doc.get('v', '')
-        timestamp = doc.get('timestamp')
-        created_at = datetime.fromtimestamp(timestamp / 1000).isoformat() if timestamp else None
-        
         return PackageData(
-            id=maven_id,
-            name=artifact_id,
+            id=package_data.get("path", ""),
+            name=package_data.get("name", ""),
             language="java",
-            description=None,  # Not provided in basic search
-            downloads=doc.get('download_count', 0) or 0,
-            stars=0,  # Not available from Maven
-            created_at=created_at,
-            updated_at=created_at,  # Using same timestamp as created_at
-            version=version,
-            repository=None,  # Not directly provided
-            license=None,  # Not in basic search response
-            homepage=None,  # Not in basic search response
-            keywords=[],
-            authors=[]
+            description=package_data.get("description", ""),
+            downloads=package_data.get("downloads", 0),
+            stars=package_data.get("stars", 0),
+            created_at=package_data.get("created_at"),
+            updated_at=package_data.get("updated_at"),
+            version=package_data.get("version", ""),
+            repository=package_data.get("repository", ""),
+            license=package_data.get("license", ""),
+            homepage=package_data.get("homepage", ""),
+            keywords=package_data.get("keywords", []),
+            authors=package_data.get("authors", [])
         )
     
     def crawl_all(self):
         try:
-            page = 0
+            # Fetch list of popular packages
+            popular_packages = self.fetch_popular_packages()
+            self.logger.info(f"Found {len(popular_packages)} Java packages")
             
-            packages = []
-            while self.total_collected < self.max_packages:
-                search_results = self.search_packages(page=page)
-                response = search_results.get('response', {})
-                docs = response.get('docs', [])
+            # Process packages in batches using parallel processing
+            batch_size = 10
+            num_workers = min(10, len(popular_packages))
+            
+            for i in range(0, len(popular_packages), batch_size):
+                batch = popular_packages[i:i+batch_size]
+                self.logger.info(f"Processing batch {i//batch_size + 1}/{(len(popular_packages) + batch_size - 1)//batch_size}")
                 
-                if not docs:
-                    self.logger.warning("No more Maven packages found in search results")
-                    # If we can't get packages from API, use a fallback list
-                    if self.total_collected == 0:
-                        self.logger.info("Using fallback Java packages")
-                        fallback_packages = [
-                            {"doc": {"g": "org.springframework", "a": "spring-core", "latestVersion": "5.3.20"}},
-                            {"doc": {"g": "com.google.guava", "a": "guava", "latestVersion": "31.1-jre"}},
-                            {"doc": {"g": "org.apache.commons", "a": "commons-lang3", "latestVersion": "3.12.0"}},
-                            {"doc": {"g": "junit", "a": "junit", "latestVersion": "4.13.2"}},
-                            {"doc": {"g": "org.slf4j", "a": "slf4j-api", "latestVersion": "1.7.36"}},
-                            {"doc": {"g": "com.fasterxml.jackson.core", "a": "jackson-databind", "latestVersion": "2.13.3"}},
-                            {"doc": {"g": "org.projectlombok", "a": "lombok", "latestVersion": "1.18.24"}},
-                            {"doc": {"g": "org.mockito", "a": "mockito-core", "latestVersion": "4.6.1"}},
-                            {"doc": {"g": "org.hibernate", "a": "hibernate-core", "latestVersion": "5.6.9.Final"}},
-                            {"doc": {"g": "mysql", "a": "mysql-connector-java", "latestVersion": "8.0.29"}}
-                        ]
-                        for package_data in fallback_packages[:self.max_packages]:
+                packages = []
+                
+                # Process packages in parallel
+                with ThreadPoolExecutor(max_workers=num_workers) as executor:
+                    futures = {executor.submit(self.fetch_package_details, package_path): package_path for package_path in batch}
+                    
+                    for future in as_completed(futures):
+                        package_path = futures[future]
+                        try:
+                            package_data = future.result()
                             packages.append(self.process_package(package_data))
-                            
-                        if packages:
-                            self.save_package_batch(packages, "java")
+                            self.logger.info(f"Processed {package_path}")
+                        except Exception as e:
+                            self.logger.error(f"Error processing {package_path}: {e}")
+                
+                # Save batch of packages
+                if packages:
+                    self.save_package_batch(packages, "java")
+                
+                # Sleep a bit between batches to avoid overwhelming APIs
+                time.sleep(2)
+                
+                if self.total_collected >= self.max_packages:
                     break
-                
-                for doc in docs:
-                    if self.total_collected >= self.max_packages:
-                        break
-                    
-                    # Create package data directly from search result
-                    package_data = {'doc': doc}
-                    packages.append(self.process_package(package_data))
-                    
-                    if len(packages) >= 20:  # Save in smaller batches
-                        self.save_package_batch(packages, "java")
-                        packages = []
-                
-                page += 1
-                time.sleep(1.0)  # Be more gentle with the server
-            
-            # Save any remaining packages
-            if packages:
-                self.save_package_batch(packages, "java")
                 
         except Exception as e:
             self.logger.error(f"Error during crawling Java packages: {e}")
-            import traceback
             self.logger.error(traceback.format_exc())
-            
-            # Use fallback if we have an error and no packages
-            if self.total_collected == 0:
-                self.logger.info("Using fallback Java packages after error")
-                packages = []
-                fallback_packages = [
-                    {"doc": {"g": "org.springframework", "a": "spring-core", "latestVersion": "5.3.20"}},
-                    {"doc": {"g": "com.google.guava", "a": "guava", "latestVersion": "31.1-jre"}},
-                    {"doc": {"g": "org.apache.commons", "a": "commons-lang3", "latestVersion": "3.12.0"}},
-                    {"doc": {"g": "junit", "a": "junit", "latestVersion": "4.13.2"}},
-                    {"doc": {"g": "org.slf4j", "a": "slf4j-api", "latestVersion": "1.7.36"}},
-                    {"doc": {"g": "com.fasterxml.jackson.core", "a": "jackson-databind", "latestVersion": "2.13.3"}},
-                    {"doc": {"g": "org.projectlombok", "a": "lombok", "latestVersion": "1.18.24"}},
-                    {"doc": {"g": "org.mockito", "a": "mockito-core", "latestVersion": "4.6.1"}},
-                    {"doc": {"g": "org.hibernate", "a": "hibernate-core", "latestVersion": "5.6.9.Final"}},
-                    {"doc": {"g": "mysql", "a": "mysql-connector-java", "latestVersion": "8.0.29"}}
-                ]
-                for package_data in fallback_packages[:self.max_packages]:
-                    packages.append(self.process_package(package_data))
-                    
-                if packages:
-                    self.save_package_batch(packages, "java")
         
         self.logger.info(f"Java packages crawling completed. Total collected: {self.total_collected}")
         return self.total_collected
@@ -913,6 +1038,270 @@ class CPlusPlusConanCrawler(BasePackageCrawler):
         self.logger.info(f"C++ packages crawling completed. Total collected: {self.total_collected}")
         return self.total_collected
     
+class PHPPackageCrawler(BasePackageCrawler):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.base_url = "https://packagist.org"
+    
+    def fetch_popular_packages(self) -> List[str]:
+        popular_packages = []
+        seen_repos = set()  # Track unique repositories
+        page = 1
+        
+        try:
+            # Use GitHub API to get popular PHP repositories
+            while len(popular_packages) < self.max_packages:
+                github_search_url = "https://api.github.com/search/repositories"
+                params = {
+                    "q": "language:php stars:>100",
+                    "sort": "stars",
+                    "order": "desc",
+                    "per_page": 100,
+                    "page": page
+                }
+                
+                # Add GitHub token for authentication
+                token = next(self.token_iterator)
+                headers = {"Accept": "application/vnd.github.v3+json"}
+                if token:
+                    headers["Authorization"] = f"token {token}"
+                
+                self.logger.info(f"Fetching page {page} of GitHub PHP repositories...")
+                response = self.make_request(github_search_url, params=params, headers=headers)
+                
+                if not response or not isinstance(response, dict) or "items" not in response:
+                    self.logger.error(f"Invalid response from GitHub API: {response}")
+                    break
+                
+                items = response.get("items", [])
+                if not items:  # No more results
+                    self.logger.info("No more repositories found.")
+                    break
+                
+                for item in items:
+                    full_name = item.get("full_name")
+                    if full_name:
+                        repo_path = f"github.com/{full_name}"
+                        if repo_path not in seen_repos:
+                            seen_repos.add(repo_path)
+                            popular_packages.append(repo_path)
+                            stars = item.get("stargazers_count", 0)
+                            self.logger.info(f"Found PHP package: {repo_path} (Stars: {stars})")
+                            
+                            if len(popular_packages) >= self.max_packages:
+                                break
+                
+                # Check if we've reached the end of results
+                total_count = response.get("total_count", 0)
+                if page * 100 >= total_count:
+                    self.logger.info(f"Reached end of results ({total_count} total repositories)")
+                    break
+                
+                page += 1
+                # Be nice to GitHub API rate limits
+                time.sleep(1.5)
+            
+            self.logger.info(f"Found total of {len(popular_packages)} unique PHP packages")
+            return popular_packages[:self.max_packages]
+            
+        except Exception as e:
+            self.logger.error(f"Error fetching popular PHP packages: {e}")
+            self.logger.error(traceback.format_exc())
+            return []
+    
+    def fetch_package_details(self, package_path: str) -> Dict[str, Any]:
+        package_data = {
+            "path": package_path,
+            "name": package_path.split("/")[-1],
+            "description": None,
+            "stars": 0,
+            "repository": f"https://{package_path}",
+            "version": "",
+            "license": ""
+        }
+        
+        # If the package is from GitHub, get repository information directly
+        if package_path.startswith("github.com/"):
+            try:
+                # Extract repository path (owner/repo)
+                repo_path = "/".join(package_path.split("/")[1:3])  # Take first two parts after github.com
+                if repo_path:
+                    github_api_url = f"https://api.github.com/repos/{repo_path}"
+                    
+                    # Add GitHub token for authentication
+                    token = next(self.token_iterator)
+                    headers = {"Accept": "application/vnd.github.v3+json"}
+                    if token:
+                        headers["Authorization"] = f"token {token}"
+                    
+                    self.logger.info(f"Fetching GitHub data from: {github_api_url}")
+                    github_response = self.make_request(github_api_url, headers=headers)
+                    
+                    if isinstance(github_response, dict):
+                        package_data["stars"] = github_response.get("stargazers_count", 0)
+                        package_data["description"] = github_response.get("description")
+                        package_data["repository"] = github_response.get("html_url", package_data["repository"])
+                        package_data["license"] = github_response.get("license", {}).get("name")
+                        package_data["created_at"] = github_response.get("created_at")
+                        package_data["updated_at"] = github_response.get("updated_at")
+                        package_data["homepage"] = github_response.get("homepage")
+                        package_data["language"] = github_response.get("language")
+                        
+                        # Get topics (keywords)
+                        topics_url = f"{github_api_url}/topics"
+                        topics_response = self.make_request(topics_url, headers=headers)
+                        if isinstance(topics_response, dict) and "names" in topics_response:
+                            package_data["keywords"] = topics_response.get("names", [])
+                            
+                        # Get owner information
+                        owner = github_response.get("owner", {})
+                        if owner and "login" in owner:
+                            package_data["authors"] = [owner.get("login")]
+                            
+                        # Try to fetch composer.json for more info - quietly handle 404 errors
+                        try:
+                            contents_url = f"{github_api_url}/contents/composer.json"
+                            contents_headers = headers.copy()
+                            contents_headers["Accept"] = "application/vnd.github.v3.raw"
+                            
+                            self.logger.debug(f"Checking for composer.json at: {contents_url}")
+                            contents_response = self.session.get(contents_url, headers=contents_headers, timeout=self.timeout)
+                            
+                            if contents_response.status_code == 200:
+                                try:
+                                    composer_data = json.loads(contents_response.text)
+                                    
+                                    # Extract version
+                                    if "version" in composer_data:
+                                        package_data["version"] = composer_data["version"]
+                                    
+                                    # Extract keywords if not already present
+                                    if "keywords" in composer_data and not package_data.get("keywords"):
+                                        package_data["keywords"] = composer_data["keywords"]
+                                    
+                                    # Extract authors
+                                    if "authors" in composer_data:
+                                        authors = []
+                                        for author in composer_data["authors"]:
+                                            if "name" in author:
+                                                authors.append(author["name"])
+                                        if authors:
+                                            package_data["authors"] = authors
+                                except Exception as e:
+                                    self.logger.debug(f"Error parsing composer.json: {e}")
+                        except requests.RequestException:
+                            # Silently ignore request exceptions for composer.json
+                            pass
+            except Exception as e:
+                self.logger.error(f"Error fetching GitHub data: {e}")
+        
+        # Try to fetch additional metadata from Packagist - quietly handle 404 errors
+        try:
+            # Extract vendor/package format
+            if package_path.startswith("github.com/"):
+                repo_parts = package_path.split("/")[1:3]
+                if len(repo_parts) >= 2:
+                    packagist_name = f"{repo_parts[0]}/{repo_parts[1]}"
+                    url = f"https://packagist.org/packages/{packagist_name}.json"
+                    
+                    self.logger.debug(f"Checking Packagist data at: {url}")
+                    packagist_response = self.session.get(url, timeout=self.timeout)
+                    
+                    if packagist_response.status_code == 200:
+                        try:
+                            response_data = packagist_response.json()
+                            if "package" in response_data:
+                                package_info = response_data.get("package", {})
+                                
+                                # Update package data with Packagist info
+                                if "description" in package_info and not package_data.get("description"):
+                                    package_data["description"] = package_info["description"]
+                                
+                                if "downloads" in package_info:
+                                    package_data["downloads"] = package_info["downloads"].get("total", 0)
+                                
+                                if "favers" in package_info:
+                                    package_data["stars"] = package_info["favers"]
+                                
+                                if "versions" in package_info:
+                                    versions = package_info["versions"]
+                                    if versions:
+                                        latest_version = next(iter(versions))
+                                        if "version" in versions[latest_version]:
+                                            package_data["version"] = versions[latest_version]["version"]
+                        except ValueError:
+                            # Silently ignore JSON parsing errors
+                            pass
+        except requests.RequestException:
+            # Silently ignore request exceptions for Packagist
+            pass
+        
+        return package_data
+    
+    def process_package(self, package_data: Dict) -> PackageData:
+        return PackageData(
+            id=package_data.get("path", ""),
+            name=package_data.get("name", ""),
+            language="php",
+            description=package_data.get("description", ""),
+            downloads=package_data.get("downloads", 0),
+            stars=package_data.get("stars", 0),
+            created_at=package_data.get("created_at"),
+            updated_at=package_data.get("updated_at"),
+            version=package_data.get("version", ""),
+            repository=package_data.get("repository", ""),
+            license=package_data.get("license", ""),
+            homepage=package_data.get("homepage", ""),
+            keywords=package_data.get("keywords", []),
+            authors=package_data.get("authors", [])
+        )
+    
+    def crawl_all(self):
+        try:
+            # Fetch list of popular packages
+            popular_packages = self.fetch_popular_packages()
+            self.logger.info(f"Found {len(popular_packages)} PHP packages")
+            
+            # Process packages in batches using parallel processing
+            batch_size = 10
+            num_workers = min(10, len(popular_packages))
+            
+            for i in range(0, len(popular_packages), batch_size):
+                batch = popular_packages[i:i+batch_size]
+                self.logger.info(f"Processing batch {i//batch_size + 1}/{(len(popular_packages) + batch_size - 1)//batch_size}")
+                
+                packages = []
+                
+                # Process packages in parallel
+                with ThreadPoolExecutor(max_workers=num_workers) as executor:
+                    futures = {executor.submit(self.fetch_package_details, package_path): package_path for package_path in batch}
+                    
+                    for future in as_completed(futures):
+                        package_path = futures[future]
+                        try:
+                            package_data = future.result()
+                            packages.append(self.process_package(package_data))
+                            self.logger.info(f"Processed {package_path}")
+                        except Exception as e:
+                            self.logger.error(f"Error processing {package_path}: {e}")
+                
+                # Save batch of packages
+                if packages:
+                    self.save_package_batch(packages, "php")
+                
+                # Sleep a bit between batches to avoid overwhelming APIs
+                time.sleep(2)
+                
+                if self.total_collected >= self.max_packages:
+                    break
+                
+        except Exception as e:
+            self.logger.error(f"Error during crawling PHP packages: {e}")
+            self.logger.error(traceback.format_exc())
+        
+        self.logger.info(f"PHP packages crawling completed. Total collected: {self.total_collected}")
+        return self.total_collected
+
 class MetaPackageCrawler:
     def __init__(
         self,
@@ -922,7 +1311,7 @@ class MetaPackageCrawler:
         max_workers: int = 3
     ):
         self.output_dir = output_dir
-        self.languages = languages or ["python", "rust", "javascript", "go", "java", "c++"]
+        self.languages = languages or ["python", "rust", "javascript", "go", "java", "c++", "php"]
         self.max_packages_per_lang = max_packages_per_lang
         self.max_workers = max_workers
         
@@ -948,6 +1337,8 @@ class MetaPackageCrawler:
             return JavaMavenCrawler(output_dir=self.output_dir, max_packages=self.max_packages_per_lang)
         elif language == "c++":
             return CPlusPlusConanCrawler(output_dir=self.output_dir, max_packages=self.max_packages_per_lang)
+        elif language == "php":
+            return PHPPackageCrawler(output_dir=self.output_dir, max_packages=self.max_packages_per_lang)
         else:
             raise ValueError(f"Unsupported language: {language}")
     
