@@ -470,7 +470,7 @@ if __name__ == "__main__":
     # default models
     base_url = "http://147.8.181.248:8000/v1/"#'https://dashscope.aliyuncs.com/compatible-mode/v1/'
     api_key = "no-api-key"#'sk-826b874003eb4f309bd65c7a6f0f79b5'
-    model = "/home/mnt/wdxu/models/Qwen2.5-Coder-7B-Instruct"#'qwen-plus'
+    model = "/home/mnt/wdxu/models/Qwen2.5-Coder-32B-Instruct"#'qwen-plus'
     # Local execution args
     parser.add_argument(
         "--workdir", type=str, default=os.environ["SWING_TESTBED_PATH"], help="Work directory"
