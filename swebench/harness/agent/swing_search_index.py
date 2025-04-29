@@ -3,11 +3,13 @@
 import json
 import logging
 from pathlib import Path
+import subprocess
+
 from argparse import ArgumentParser
 from pyserini.search.lucene import LuceneSearcher
 from tqdm import tqdm
-
 from swebench.harness.constants.swing_constants import SwingbenchInstance
+from swebench.prepare.swing_build_index import build_repo_index
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -15,6 +17,7 @@ logger = logging.getLogger(__name__)
 def search_instance(
     instance: SwingbenchInstance,
     index_root: Path,
+    src_folder: Path,
     document_encoding_style: str,
     k: int = 20
 ) -> dict:
@@ -31,9 +34,19 @@ def search_instance(
     )
     
     if not index_path.exists():
-        logger.error(f"Index at {index_path} not found for {repo} at commit {commit}")
-        return None
-        
+        logger.error(f"Index at {index_path} not found for {repo} at commit {commit}. Building index...")
+        python = subprocess.run("which python", shell=True, capture_output=True)
+        python = python.stdout.decode("utf-8").strip()
+        print(f"Build repo index: repo:{repo}, commit:{commit}, index_root:{index_root}, repo_root_dir:{src_folder}, document_encoding_style:{document_encoding_style}")
+        build_repo_index(
+            repo=repo,
+            commits=(commit,),
+            root_dir=index_root,
+            repo_root_dir=src_folder,
+            document_encoding_style=document_encoding_style,
+            python=python,
+            github_base_url="https://github.com",
+        )
     try:
         searcher = LuceneSearcher(index_path.as_posix())
         cutoff = len(query)

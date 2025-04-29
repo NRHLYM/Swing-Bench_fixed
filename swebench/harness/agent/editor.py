@@ -91,7 +91,7 @@ class RawDataCodeEditor(CodeEditorBase):
             print('Trying to repair json.')
             print(f'json_content: {json_content}')
             repaired_json = repair_json(json_content)
-            if repaired_json is '':
+            if repaired_json == '':
                 return None, json_content
             else:
                 return repaired_json, ""
@@ -106,8 +106,12 @@ class RawDataCodeEditor(CodeEditorBase):
                 model=self.model,
                 messages=[{"role": "user", "content": input},
                         {"role": "system", "content": system_prompt}],
+                # response_format={"type": "json_object"},
                 temperature=0.0,
             )
+            # print("##################################################")
+            # print(response.choices[0].message.content)
+            # print("##################################################")
             function_call_args, _ = self._parse_structured_data(response.choices[0].message.content)
             if function_call_args == None:
                 # input = origin_input + "\n " + \

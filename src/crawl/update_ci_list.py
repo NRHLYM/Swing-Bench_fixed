@@ -103,7 +103,7 @@ def extract_ci_name_list(pull: dict):
         print(f"Invalid input format, missing key: {e}")
         return []
     
-    checks_url = f"https://github.com.psmoe.com/{repo_full_name}/pull/{pr_number}/checks"
+    checks_url = f"https://github.com/{repo_full_name}/pull/{pr_number}/checks"
     print(f"Processing {repo_full_name} {pr_number} at {checks_url}")
     
     # Get checks page
@@ -120,7 +120,7 @@ def extract_ci_name_list(pull: dict):
     all_ci_names = []
     # Process each unique run ID
     for run_id in set(matches):
-        workflow_url = f"https://github.com.psmoe.com/{repo_full_name}/actions/runs/{run_id}/workflow"
+        workflow_url = f"https://github.com/{repo_full_name}/actions/runs/{run_id}/workflow"
         workflow_html = get_html_page(workflow_url, get_token())
         if not workflow_html:
             continue

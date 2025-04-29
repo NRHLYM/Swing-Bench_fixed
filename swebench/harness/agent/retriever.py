@@ -18,10 +18,11 @@ class BM25DiskRetriever(Retriever):
         self.index_dir = Path(index_dir)
         self.document_encoding_style = document_encoding_style
 
-    def retrieve(self, instance: SwingbenchInstance, k: int = 1):
+    def retrieve(self, instance: SwingbenchInstance, src_folder: str, k: int = 1):
         results = search_instance(
             instance,
             self.index_dir,
+            src_folder,
             self.document_encoding_style,
             k=k
         )
