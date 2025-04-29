@@ -19,7 +19,7 @@ with tempfile.TemporaryDirectory() as tmp_dir:
     rust_dir = os.path.join(tmp_dir, "Rust")
     os.makedirs(rust_dir, exist_ok=True)
     
-    shutil.copy("swe-rust.json", os.path.join(rust_dir, "rust.json"))
+    shutil.copy("tasks_with_ci.jsonl", os.path.join(rust_dir, "rust.json"))
     
     api.upload_folder(
         folder_path=tmp_dir,

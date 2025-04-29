@@ -9,7 +9,9 @@ from typing import Optional, Dict, List, Any
 from urllib.parse import urljoin, quote
 from dataclasses import dataclass
 from datetime import datetime
+import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from itertools import cycle
 
 @dataclass
 class PackageData:
@@ -35,7 +37,8 @@ class BasePackageCrawler:
         max_retries: int = 3,
         retry_delay: float = 1.0,
         timeout: int = 30,
-        max_packages: int = 5000
+        max_packages: int = 5000,
+        github_tokens: Optional[List[str]] = None
     ):
         self.output_dir = output_dir
         self.max_retries = max_retries
@@ -44,6 +47,13 @@ class BasePackageCrawler:
         self.max_packages = max_packages
         self.session = requests.Session()
         self.total_collected = 0
+        
+        # Setup GitHub tokens
+        self.github_tokens = github_tokens or os.getenv("GH_TOKENS", "").split(",")
+        if not self.github_tokens or not any(self.github_tokens):
+            print("No GitHub tokens provided. API rate limits will be restricted.")
+            self.github_tokens = [""]  # Use empty token as fallback
+        self.token_iterator = cycle(self.github_tokens)  # Create a round-robin iterator for tokens
         
         os.makedirs(output_dir, exist_ok=True)
         
@@ -61,15 +71,25 @@ class BasePackageCrawler:
         if headers:
             default_headers.update(headers)
             
+        # Add GitHub token if requesting from GitHub API
+        if "api.github.com" in url:
+            token = next(self.token_iterator)
+            if token:
+                default_headers["Authorization"] = f"token {token}"
+            
         for attempt in range(self.max_retries):
             try:
                 response = self.session.get(url, params=params, headers=default_headers, timeout=self.timeout)
                 
                 if response.status_code == 200:
+                    # First check if URL contains pkg.go.dev - if so, return HTML content
+                    if "pkg.go.dev" in url:
+                        return {"html_content": response.text}
+                    
+                    # For other URLs (like GitHub API), try JSON
                     try:
                         return response.json()
                     except json.JSONDecodeError:
-                        self.logger.warning(f"Response is not JSON: {url}")
                         return {"html_content": response.text}
                 
                 if response.status_code == 429:
@@ -397,103 +417,140 @@ class GoPackageCrawler(BasePackageCrawler):
         self.pkg_url = "https://pkg.go.dev"
     
     def fetch_popular_packages(self) -> List[str]:
-        # Since the API doesn't work, we'll scrape the web page directly
         popular_packages = []
+        seen_repos = set()  # Track unique repositories
+        page = 1
         
         try:
-            # Get popular packages from Go website
-            url = f"{self.pkg_url}/search?q=stars%3A%3E100"
-            headers = {
-                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            }
-            
-            response = self.make_request(url, headers=headers)
-            html_content = response.get("html_content", "")
-            
-            if html_content:
-                soup = BeautifulSoup(html_content, "html.parser")
-                package_items = soup.select(".go-ResultsList .go-ResultSnippet")
+            # Use GitHub API to get popular Go repositories
+            while len(popular_packages) < self.max_packages:
+                github_search_url = "https://api.github.com/search/repositories"
+                params = {
+                    "q": "language:go stars:>100",
+                    "sort": "stars",
+                    "order": "desc",
+                    "per_page": 100,
+                    "page": page
+                }
                 
-                for item in package_items:
-                    header = item.select_one(".go-ResultSnippet-header")
-                    if header and header.select_one("a"):
-                        package_path = header.select_one("a").get("href", "")
-                        if package_path.startswith("/"):
-                            package_path = package_path[1:]  # Remove leading slash
-                            popular_packages.append(package_path)
-            
-            # Add fallback popular packages if we couldn't get enough
-            if len(popular_packages) < 10:
-                fallback = [
-                    "github.com/golang/protobuf",
-                    "github.com/stretchr/testify",
-                    "github.com/sirupsen/logrus",
-                    "github.com/spf13/cobra",
-                    "github.com/golang/mock",
-                    "github.com/gorilla/mux",
-                    "golang.org/x/crypto",
-                    "github.com/prometheus/client_golang",
-                    "github.com/go-kit/kit",
-                    "github.com/gin-gonic/gin"
-                ]
-                popular_packages.extend(fallback)
+                # Add GitHub token for authentication
+                token = next(self.token_iterator)
+                headers = {"Accept": "application/vnd.github.v3+json"}
+                if token:
+                    headers["Authorization"] = f"token {token}"
                 
+                self.logger.info(f"Fetching page {page} of GitHub Go repositories...")
+                response = self.make_request(github_search_url, params=params, headers=headers)
+                
+                if not response or not isinstance(response, dict) or "items" not in response:
+                    self.logger.error(f"Invalid response from GitHub API: {response}")
+                    break
+                
+                items = response.get("items", [])
+                if not items:  # No more results
+                    self.logger.info("No more repositories found.")
+                    break
+                
+                for item in items:
+                    full_name = item.get("full_name")
+                    if full_name:
+                        repo_path = f"github.com/{full_name}"
+                        if repo_path not in seen_repos:
+                            seen_repos.add(repo_path)
+                            popular_packages.append(repo_path)
+                            stars = item.get("stargazers_count", 0)
+                            self.logger.info(f"Found Go package: {repo_path} (Stars: {stars})")
+                            
+                            if len(popular_packages) >= self.max_packages:
+                                break
+                
+                # Check if we've reached the end of results
+                total_count = response.get("total_count", 0)
+                if page * 100 >= total_count:
+                    self.logger.info(f"Reached end of results ({total_count} total repositories)")
+                    break
+                
+                page += 1
+                # Be nice to GitHub API rate limits
+                time.sleep(1.5)
+            
+            self.logger.info(f"Found total of {len(popular_packages)} unique Go packages")
             return popular_packages[:self.max_packages]
             
         except Exception as e:
             self.logger.error(f"Error fetching popular Go packages: {e}")
-            
-            # Fallback to a list of known popular packages
-            fallback_packages = [
-                "github.com/golang/protobuf",
-                "github.com/stretchr/testify",
-                "github.com/sirupsen/logrus",
-                "github.com/spf13/cobra",
-                "github.com/golang/mock",
-                "github.com/gorilla/mux",
-                "golang.org/x/crypto",
-                "github.com/prometheus/client_golang",
-                "github.com/go-kit/kit",
-                "github.com/gin-gonic/gin"
-            ]
-            return fallback_packages[:min(len(fallback_packages), self.max_packages)]
+            self.logger.error(traceback.format_exc())
+            return []
     
     def fetch_package_details(self, package_path: str) -> Dict[str, Any]:
-        url = f"{self.pkg_url}/{package_path}"
-        response = self.make_request(url)
-        
-        # Initialize default package data
         package_data = {
             "path": package_path,
             "name": package_path.split("/")[-1],
-            "description": f"Go package {package_path}",
+            "description": None,
             "stars": 0,
             "repository": f"https://{package_path}",
             "version": "",
             "license": ""
         }
         
-        # If we got HTML content, parse it
-        if "html_content" in response:
-            html_content = response.get("html_content", "")
-            soup = BeautifulSoup(html_content, "html.parser")
+        # If the package is from GitHub, get repository information directly
+        if package_path.startswith("github.com/"):
+            try:
+                # Extract repository path (owner/repo)
+                repo_path = "/".join(package_path.split("/")[1:3])  # Take first two parts after github.com
+                if repo_path:
+                    github_api_url = f"https://api.github.com/repos/{repo_path}"
+                    
+                    # Add GitHub token for authentication
+                    token = next(self.token_iterator)
+                    headers = {"Accept": "application/vnd.github.v3+json"}
+                    if token:
+                        headers["Authorization"] = f"token {token}"
+                    
+                    self.logger.info(f"Fetching GitHub data from: {github_api_url}")
+                    github_response = self.make_request(github_api_url, headers=headers)
+                    
+                    if isinstance(github_response, dict):
+                        package_data["stars"] = github_response.get("stargazers_count", 0)
+                        package_data["description"] = github_response.get("description")
+                        package_data["repository"] = github_response.get("html_url", package_data["repository"])
+                        package_data["license"] = github_response.get("license", {}).get("name")
+                        package_data["created_at"] = github_response.get("created_at")
+                        package_data["updated_at"] = github_response.get("updated_at")
+                        package_data["homepage"] = github_response.get("homepage")
+                        package_data["language"] = github_response.get("language")
+                        
+                        # Get topics (keywords)
+                        topics_url = f"{github_api_url}/topics"
+                        topics_response = self.make_request(topics_url, headers=headers)
+                        if isinstance(topics_response, dict) and "names" in topics_response:
+                            package_data["keywords"] = topics_response.get("names", [])
+                            
+                        # Get owner information
+                        owner = github_response.get("owner", {})
+                        if owner and "login" in owner:
+                            package_data["authors"] = [owner.get("login")]
+            except Exception as e:
+                self.logger.error(f"Error fetching GitHub data: {e}")
+        
+        # Try to fetch additional metadata from pkg.go.dev
+        try:
+            url = f"{self.pkg_url}/{package_path}"
+            response = self.make_request(url)
             
-            # Extract description
-            description_elem = soup.select_one(".go-Content--center p")
-            if description_elem:
-                package_data["description"] = description_elem.get_text(strip=True)
-            
-            # Extract version
-            version_elem = soup.select_one(".go-Main-headerBreadcrumb span")
-            if version_elem:
-                version_text = version_elem.get_text(strip=True)
-                if version_text.startswith("v"):
-                    package_data["version"] = version_text
-            
-            # Extract license
-            license_elem = soup.select_one("a[href*='license']")
-            if license_elem:
-                package_data["license"] = license_elem.get_text(strip=True)
+            # If we got HTML content from pkg.go.dev, parse it for version info
+            if "html_content" in response:
+                html_content = response.get("html_content", "")
+                soup = BeautifulSoup(html_content, "html.parser")
+                
+                # Extract version
+                version_elem = soup.select_one(".go-Main-headerBreadcrumb span")
+                if version_elem:
+                    version_text = version_elem.get_text(strip=True)
+                    if version_text.startswith("v"):
+                        package_data["version"] = version_text
+        except Exception as e:
+            self.logger.error(f"Error fetching Go package details: {e}")
         
         return package_data
     
@@ -505,48 +562,57 @@ class GoPackageCrawler(BasePackageCrawler):
             description=package_data.get("description", ""),
             downloads=0,  # Not available
             stars=package_data.get("stars", 0),
-            created_at=None,  # Not available
-            updated_at=None,  # Not available
+            created_at=package_data.get("created_at"),
+            updated_at=package_data.get("updated_at"),
             version=package_data.get("version", ""),
             repository=package_data.get("repository", ""),
             license=package_data.get("license", ""),
-            homepage=package_data.get("repository", ""),
-            keywords=[],  # Not easily available
-            authors=[]  # Not easily available
+            homepage=package_data.get("homepage", ""),
+            keywords=package_data.get("keywords", []),
+            authors=package_data.get("authors", [])
         )
     
     def crawl_all(self):
         try:
-            package_paths = self.fetch_popular_packages()
-            self.logger.info(f"Found {len(package_paths)} Go packages")
+            # Fetch list of popular packages
+            popular_packages = self.fetch_popular_packages()
+            self.logger.info(f"Found {len(popular_packages)} Go packages")
             
-            packages = []
-            for path in package_paths:
+            # Process packages in batches using parallel processing
+            batch_size = 10
+            num_workers = min(10, len(popular_packages))
+            
+            for i in range(0, len(popular_packages), batch_size):
+                batch = popular_packages[i:i+batch_size]
+                self.logger.info(f"Processing batch {i//batch_size + 1}/{(len(popular_packages) + batch_size - 1)//batch_size}")
+                
+                packages = []
+                
+                # Process packages in parallel
+                with ThreadPoolExecutor(max_workers=num_workers) as executor:
+                    futures = {executor.submit(self.fetch_package_details, package_path): package_path for package_path in batch}
+                    
+                    for future in as_completed(futures):
+                        package_path = futures[future]
+                        try:
+                            package_data = future.result()
+                            packages.append(self.process_package(package_data))
+                            self.logger.info(f"Processed {package_path}")
+                        except Exception as e:
+                            self.logger.error(f"Error processing {package_path}: {e}")
+                
+                # Save batch of packages
+                if packages:
+                    self.save_package_batch(packages, "go")
+                
+                # Sleep a bit between batches to avoid overwhelming APIs
+                time.sleep(2)
+                
                 if self.total_collected >= self.max_packages:
                     break
                 
-                try:
-                    self.logger.info(f"Processing Go package: {path}")
-                    package_data = self.fetch_package_details(path)
-                    if package_data:
-                        packages.append(self.process_package(package_data))
-                        
-                        if len(packages) >= 5:  # Save in smaller batches
-                            self.save_package_batch(packages, "go")
-                            packages = []
-                except Exception as e:
-                    self.logger.error(f"Error processing Go package {path}: {e}")
-                    continue
-                
-                time.sleep(0.5)  # Be more gentle with the server
-            
-            # Save any remaining packages
-            if packages:
-                self.save_package_batch(packages, "go")
-                
         except Exception as e:
             self.logger.error(f"Error during crawling Go packages: {e}")
-            import traceback
             self.logger.error(traceback.format_exc())
         
         self.logger.info(f"Go packages crawling completed. Total collected: {self.total_collected}")
