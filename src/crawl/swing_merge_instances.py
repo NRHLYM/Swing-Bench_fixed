@@ -2,6 +2,7 @@ import argparse
 import os
 import re
 import jsonlines
+import json
 from tqdm import tqdm
 
 
@@ -21,9 +22,11 @@ def combine_results(output_folder: str,):
         else:
             print(f"Warning: {repo_path} does not exist, skipping...")
     print("Writing!")
-    with open(os.path.join(output_folder, "all_tasks.jsonl"), "w") as f:
-        writer = jsonlines.Writer(f)
-        writer.write_all(all_tasks)    
+    with open(os.path.join(output_folder, "all_tasks.json"), "w") as f:
+        f.write("[\n")
+        for task in all_tasks:
+            f.write(json.dumps(task) + ",\n")
+        f.write("]\n")
     print("Finished writing results.")
 
 
