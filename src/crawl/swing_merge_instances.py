@@ -23,10 +23,7 @@ def combine_results(output_folder: str,):
             print(f"Warning: {repo_path} does not exist, skipping...")
     print("Writing!")
     with open(os.path.join(output_folder, "all_tasks.json"), "w") as f:
-        f.write("[\n")
-        for task in all_tasks:
-            f.write(json.dumps(task) + ",\n")
-        f.write("]\n")
+        json.dump(all_tasks, f)
     print("Finished writing results.")
 
 
