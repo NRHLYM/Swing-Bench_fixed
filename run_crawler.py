@@ -13,7 +13,8 @@ from src.crawl.metainfo import (
     GoPackageCrawler,
     PHPPackageCrawler,
     JavaMavenCrawler,
-    CPlusPlusConanCrawler
+    CPlusPlusConanCrawler,
+    JavaScriptNPMCrawler
 )
 
 # Configuration
@@ -21,7 +22,7 @@ OUTPUT_DIR = "repository_data_0430"
 MAX_REPOSITORIES = 5000  # Target number of repositories per language
 WORKER_THREADS = 25      # Number of parallel workers per language
 BATCH_SIZE = 30          # Process repositories in batches of this size
-LANGUAGES = ["go", "php", "java", "cpp"]  # Languages to crawl in sequence
+LANGUAGES = ["go", "php", "java", "cpp", "javascript"]  # Languages to crawl in sequence
 
 # Setup logging
 logging.basicConfig(
@@ -42,7 +43,8 @@ def process_language(language, github_tokens):
         'go': GoPackageCrawler,
         'php': PHPPackageCrawler,
         'java': JavaMavenCrawler,
-        'cpp': CPlusPlusConanCrawler
+        'cpp': CPlusPlusConanCrawler,
+        'javascript': JavaScriptNPMCrawler
     }
     
     # Initialize crawler

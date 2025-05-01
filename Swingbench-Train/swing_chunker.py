@@ -152,6 +152,20 @@ class CodeChunker:
         
             print(f"Successfully loaded Rust language: {self.parser}")
                 
+        elif language == "cpp":
+            import tree_sitter_cpp
+            CPP_LANGUAGE = Language(tree_sitter_cpp.language())
+            self.parser = Parser(CPP_LANGUAGE)
+        
+            print(f"Successfully loaded C++ language: {self.parser}")
+                
+        elif language == "go":
+            import tree_sitter_go
+            GO_LANGUAGE = Language(tree_sitter_go.language())
+            self.parser = Parser(GO_LANGUAGE)
+        
+            print(f"Successfully loaded Go language: {self.parser}")
+                
         else:
             print(f"Language {language} not supported, will use regex to parse")
             self.parser = None
