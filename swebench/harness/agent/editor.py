@@ -92,10 +92,12 @@ class RawDataCodeEditor(CodeEditorBase):
             print(f'json_content: {json_content}')
             repaired_json = repair_json(json_content)
             if repaired_json == '':
+                print(f'Failed to repair json. json_content: {json_content}')
                 return None, json_content
             else:
                 return repaired_json, ""
         if 'code_edits' not in json_result and 'test_cases' not in json_result:
+            print(f'No code_edits and test_cases in json_result: {json_result}')
             return None, json_content
 
         return json_result, ""
@@ -291,9 +293,10 @@ class RawDataCodeEditor(CodeEditorBase):
         try:
             function_call_args = self._call_api(origin_input, role, retry)
         except Exception as e:
-            print(e)
+            print('call api failed. function_call_args is None. error: ', e)
             function_call_args = None
         if function_call_args is None:
+            print(f'function_call_args is None. origin_input: {origin_input}')
             return None
 
         if role == "patch":
