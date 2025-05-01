@@ -282,125 +282,247 @@ class PythonPyPICrawler(BasePackageCrawler):
 class JavaScriptNPMCrawler(BasePackageCrawler):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.search_url = "https://registry.npmjs.org/-/v1/search"
-        self.package_url = "https://registry.npmjs.org"
     
-    def search_packages(self, page: int = 0) -> Dict:
-        params = {
-            "text": "popularity:>=0.5",
-            "size": 100,
-            "from": page * 100
-        }
-        return self.make_request(self.search_url, params)
-    
-    def fetch_package_info(self, package_name: str) -> Dict:
-        url = f"{self.package_url}/{quote(package_name)}"
-        return self.make_request(url)
-    
-    def process_package(self, package_info: Dict, search_data: Optional[Dict] = None) -> PackageData:
-        # Extract basic package data
-        package_name = search_data.get("name", "")
+    def fetch_popular_packages(self) -> List[str]:
+        popular_packages = []
+        seen_repos = set()  # Track unique repositories
+        page = 1
         
-        # Get latest version
-        latest_version = ""
-        if "dist-tags" in package_info and "latest" in package_info["dist-tags"]:
-            latest_version = package_info["dist-tags"]["latest"]
-        
-        # Get version-specific data
-        version_data = {}
-        if latest_version and "versions" in package_info and latest_version in package_info["versions"]:
-            version_data = package_info["versions"][latest_version]
-        
-        # Get time data
-        created_at = None
-        updated_at = None
-        if "time" in package_info:
-            created_at = package_info["time"].get("created")
-            updated_at = package_info["time"].get("modified")
-        
-        # Get repository URL
-        repository = None
-        if "repository" in version_data:
-            if isinstance(version_data["repository"], dict):
-                repository = version_data["repository"].get("url", "")
-            else:
-                repository = version_data["repository"]
+        try:
+            # Use GitHub API to get popular JavaScript repositories
+            while len(popular_packages) < self.max_packages:
+                github_search_url = "https://api.github.com/search/repositories"
+                params = {
+                    "q": "language:javascript stars:>100",
+                    "sort": "stars",
+                    "order": "desc",
+                    "per_page": 100,
+                    "page": page
+                }
                 
-        # Clean up GitHub repository URLs
-        if repository and "github.com" in repository:
-            repository = repository.replace("git+", "").replace("git:", "https:").replace(".git", "")
+                # Add GitHub token for authentication
+                token = next(self.token_iterator)
+                headers = {"Accept": "application/vnd.github.v3+json"}
+                if token:
+                    headers["Authorization"] = f"token {token}"
+                
+                self.logger.info(f"Fetching page {page} of GitHub JavaScript repositories...")
+                response = self.make_request(github_search_url, params=params, headers=headers)
+                
+                if not response or not isinstance(response, dict) or "items" not in response:
+                    self.logger.error(f"Invalid response from GitHub API: {response}")
+                    break
+                
+                items = response.get("items", [])
+                if not items:  # No more results
+                    self.logger.info("No more repositories found.")
+                    break
+                
+                for item in items:
+                    full_name = item.get("full_name")
+                    if full_name:
+                        repo_path = f"github.com/{full_name}"
+                        if repo_path not in seen_repos:
+                            seen_repos.add(repo_path)
+                            popular_packages.append(repo_path)
+                            stars = item.get("stargazers_count", 0)
+                            self.logger.info(f"Found JavaScript package: {repo_path} (Stars: {stars})")
+                            
+                            if len(popular_packages) >= self.max_packages:
+                                break
+                
+                # Check if we've reached the end of results
+                total_count = response.get("total_count", 0)
+                if page * 100 >= total_count:
+                    self.logger.info(f"Reached end of results ({total_count} total repositories)")
+                    break
+                
+                page += 1
+                # Be nice to GitHub API rate limits
+                time.sleep(1.5)
+            
+            self.logger.info(f"Found total of {len(popular_packages)} unique JavaScript packages")
+            return popular_packages[:self.max_packages]
+            
+        except Exception as e:
+            self.logger.error(f"Error fetching popular JavaScript packages: {e}")
+            self.logger.error(traceback.format_exc())
+            return []
+    
+    def fetch_package_details(self, package_path: str) -> Dict[str, Any]:
+        package_data = {
+            "path": package_path,
+            "name": package_path.split("/")[-1],
+            "description": None,
+            "stars": 0,
+            "repository": f"https://{package_path}",
+            "version": "",
+            "license": ""
+        }
         
-        # Get keywords
-        keywords = []
-        if "keywords" in version_data and version_data["keywords"]:
-            if isinstance(version_data["keywords"], list):
-                keywords = version_data["keywords"]
-            elif isinstance(version_data["keywords"], str):
-                keywords = version_data["keywords"].split(",")
+        # If the package is from GitHub, get repository information directly
+        if package_path.startswith("github.com/"):
+            try:
+                # Extract repository path (owner/repo)
+                repo_path = "/".join(package_path.split("/")[1:3])  # Take first two parts after github.com
+                if repo_path:
+                    github_api_url = f"https://api.github.com/repos/{repo_path}"
+                    
+                    # Add GitHub token for authentication
+                    token = next(self.token_iterator)
+                    headers = {"Accept": "application/vnd.github.v3+json"}
+                    if token:
+                        headers["Authorization"] = f"token {token}"
+                    
+                    self.logger.info(f"Fetching GitHub data from: {github_api_url}")
+                    github_response = self.make_request(github_api_url, headers=headers)
+                    
+                    if isinstance(github_response, dict):
+                        package_data["stars"] = github_response.get("stargazers_count", 0)
+                        package_data["description"] = github_response.get("description")
+                        package_data["repository"] = github_response.get("html_url", package_data["repository"])
+                        package_data["license"] = github_response.get("license", {}).get("name")
+                        package_data["created_at"] = github_response.get("created_at")
+                        package_data["updated_at"] = github_response.get("updated_at")
+                        package_data["homepage"] = github_response.get("homepage")
+                        package_data["language"] = github_response.get("language")
+                        
+                        # Get topics (keywords)
+                        topics_url = f"{github_api_url}/topics"
+                        topics_response = self.make_request(topics_url, headers=headers)
+                        if isinstance(topics_response, dict) and "names" in topics_response:
+                            package_data["keywords"] = topics_response.get("names", [])
+                            
+                        # Get owner information
+                        owner = github_response.get("owner", {})
+                        if owner and "login" in owner:
+                            package_data["authors"] = [owner.get("login")]
+                            
+                        # Try to fetch package.json for more info - quietly handle 404 errors
+                        try:
+                            contents_url = f"{github_api_url}/contents/package.json"
+                            contents_headers = headers.copy()
+                            contents_headers["Accept"] = "application/vnd.github.v3.raw"
+                            
+                            self.logger.debug(f"Checking for package.json at: {contents_url}")
+                            contents_response = self.session.get(contents_url, headers=contents_headers, timeout=self.timeout)
+                            
+                            if contents_response.status_code == 200:
+                                try:
+                                    npm_data = json.loads(contents_response.text)
+                                    
+                                    # Extract version
+                                    if "version" in npm_data:
+                                        package_data["version"] = npm_data["version"]
+                                    
+                                    # Extract name if available
+                                    if "name" in npm_data:
+                                        package_data["name"] = npm_data["name"]
+                                    
+                                    # Extract additional keywords if available
+                                    if "keywords" in npm_data and not package_data.get("keywords"):
+                                        package_data["keywords"] = npm_data["keywords"]
+                                    
+                                    # Extract authors
+                                    if "author" in npm_data:
+                                        if isinstance(npm_data["author"], dict) and "name" in npm_data["author"]:
+                                            package_data["authors"] = [npm_data["author"]["name"]]
+                                        elif isinstance(npm_data["author"], str):
+                                            package_data["authors"] = [npm_data["author"]]
+                                except Exception as e:
+                                    self.logger.debug(f"Error parsing package.json: {e}")
+                        except requests.RequestException:
+                            # Silently ignore request exceptions for package.json
+                            pass
+            except Exception as e:
+                self.logger.error(f"Error fetching GitHub data: {e}")
         
-        # Get authors
-        authors = []
-        if "author" in version_data:
-            if isinstance(version_data["author"], dict) and "name" in version_data["author"]:
-                authors.append(version_data["author"]["name"])
-            elif isinstance(version_data["author"], str):
-                authors.append(version_data["author"])
+        # Try to get npm registry data for more accurate download counts
+        try:
+            if package_data.get("name"):
+                npm_name = package_data["name"]
+                npm_url = f"https://registry.npmjs.org/{npm_name}"
+                npm_response = self.make_request(npm_url)
+                
+                if isinstance(npm_response, dict):
+                    # Get latest version
+                    if "dist-tags" in npm_response and "latest" in npm_response["dist-tags"]:
+                        package_data["version"] = npm_response["dist-tags"]["latest"]
+                        
+                    # Try to get download count from npm API
+                    try:
+                        download_url = f"https://api.npmjs.org/downloads/point/last-month/{npm_name}"
+                        download_response = self.make_request(download_url)
+                        if isinstance(download_response, dict) and "downloads" in download_response:
+                            package_data["downloads"] = download_response["downloads"]
+                    except:
+                        pass  # Silently ignore errors in fetching download counts
+        except:
+            # Silently ignore errors in npm registry lookup
+            pass
         
+        return package_data
+    
+    def process_package(self, package_data: Dict) -> PackageData:
         return PackageData(
-            id=package_name,
-            name=package_name,
+            id=package_data.get("path", ""),
+            name=package_data.get("name", ""),
             language="javascript",
-            description=version_data.get("description"),
-            downloads=search_data.get("score", {}).get("detail", {}).get("popularity", 0) * 10000,
-            stars=search_data.get("score", {}).get("detail", {}).get("quality", 0) * 100,
-            created_at=created_at,
-            updated_at=updated_at,
-            version=latest_version,
-            repository=repository,
-            license=version_data.get("license"),
-            homepage=version_data.get("homepage"),
-            keywords=keywords,
-            authors=authors
+            description=package_data.get("description", ""),
+            downloads=package_data.get("downloads", 0),
+            stars=package_data.get("stars", 0),
+            created_at=package_data.get("created_at"),
+            updated_at=package_data.get("updated_at"),
+            version=package_data.get("version", ""),
+            repository=package_data.get("repository", ""),
+            license=package_data.get("license", ""),
+            homepage=package_data.get("homepage", ""),
+            keywords=package_data.get("keywords", []),
+            authors=package_data.get("authors", [])
         )
     
     def crawl_all(self):
         try:
-            page = 0
+            # Fetch list of popular packages
+            popular_packages = self.fetch_popular_packages()
+            self.logger.info(f"Found {len(popular_packages)} JavaScript packages")
             
-            packages = []
-            while self.total_collected < self.max_packages:
-                search_results = self.search_packages(page=page)
-                search_objects = search_results.get("objects", [])
+            # Process packages in batches using parallel processing
+            batch_size = 10
+            num_workers = min(10, len(popular_packages))
+            
+            for i in range(0, len(popular_packages), batch_size):
+                batch = popular_packages[i:i+batch_size]
+                self.logger.info(f"Processing batch {i//batch_size + 1}/{(len(popular_packages) + batch_size - 1)//batch_size}")
                 
-                if not search_objects:
+                packages = []
+                
+                # Process packages in parallel
+                with ThreadPoolExecutor(max_workers=num_workers) as executor:
+                    futures = {executor.submit(self.fetch_package_details, package_path): package_path for package_path in batch}
+                    
+                    for future in as_completed(futures):
+                        package_path = futures[future]
+                        try:
+                            package_data = future.result()
+                            packages.append(self.process_package(package_data))
+                            self.logger.info(f"Processed {package_path}")
+                        except Exception as e:
+                            self.logger.error(f"Error processing {package_path}: {e}")
+                
+                # Save batch of packages
+                if packages:
+                    self.save_package_batch(packages, "javascript")
+                
+                # Sleep a bit between batches to avoid overwhelming APIs
+                time.sleep(2)
+                
+                if self.total_collected >= self.max_packages:
                     break
-                
-                for obj in search_objects:
-                    if self.total_collected >= self.max_packages:
-                        break
-                        
-                    package_data = obj.get("package", {})
-                    package_name = package_data.get("name")
-                    
-                    if package_name:
-                        package_info = self.fetch_package_info(package_name)
-                        if package_info:
-                            packages.append(self.process_package(package_info, package_data))
-                            
-                            if len(packages) >= 100:  # Save in batches
-                                self.save_package_batch(packages, "javascript")
-                                packages = []
-                    
-                    time.sleep(0.1)  # Be nice to the server
-                
-                page += 1
-            
-            # Save any remaining packages
-            if packages:
-                self.save_package_batch(packages, "javascript")
                 
         except Exception as e:
             self.logger.error(f"Error during crawling JavaScript packages: {e}")
+            self.logger.error(traceback.format_exc())
         
         self.logger.info(f"JavaScript packages crawling completed. Total collected: {self.total_collected}")
         return self.total_collected
@@ -993,7 +1115,7 @@ class CPlusPlusConanCrawler(BasePackageCrawler):
                         if owner and "login" in owner:
                             package_data["authors"] = [owner.get("login")]
                             
-                        # Try to extract version information from CMakeLists.txt, package.json, or other common C++ package files
+                        # Try to fetch CMakeLists.txt for more info - quietly handle 404 errors
                         try:
                             # Check for CMakeLists.txt
                             cmake_url = f"{github_api_url}/contents/CMakeLists.txt"
