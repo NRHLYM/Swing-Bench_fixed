@@ -7,6 +7,7 @@ from tqdm import tqdm
 import concurrent.futures
 import os
 import time
+import argparse
 
 def get_llm(prompt: str, api_key: str, base_url: str) -> Optional[str]:
     """Call LLM API with basic retry logic"""
@@ -16,7 +17,7 @@ def get_llm(prompt: str, api_key: str, base_url: str) -> Optional[str]:
             
             response = client.chat.completions.create(
                 messages=[{"role": "user", "content": prompt}],
-                model="public-glm-4-plus",
+                model="glm-4-flash",
                 temperature=0.7,
                 top_p=0.8,
                 stream=False,
@@ -33,18 +34,20 @@ def get_llm(prompt: str, api_key: str, base_url: str) -> Optional[str]:
 
 def create_vague_problem_statement_prompt(instance):
     prompt = f"""
-    Evaluate if this problem statement is vague based on these criteria:
-    1. Missing specificity about what to implement/fix
-    2. Insufficient context or background
-    3. Unclear requirements
-    4. Undefined scope/boundaries
-    5. Ambiguous technical specifications
-    6. Lacks actionable information for a developer
-    7. Contains contradictions or inconsistencies
+    Evaluate if this problem statement is extremely vague based on these criteria:
+    1. Completely missing any specifics about what to implement/fix
+    2. Severely lacking any context or background information
+    3. No clear requirements at all
+    4. Entirely undefined scope/boundaries
+    5. No technical specifications whatsoever
+    6. Provides no actionable information for a developer
+    7. Contains major contradictions or inconsistencies
 
     Problem Statement: {instance["problem_statement"]}
 
-    Return your judgment as: <judgement>True</judgement> if vague, or <judgement>False</judgement> if not vague.
+    Return your judgment as: <judgement>True</judgement> ONLY if extremely vague and completely unusable, or <judgement>False</judgement> otherwise.
+    Be very lenient in your evaluation - if the problem statement provides ANY useful information that could help a developer start working, consider it acceptable and return False.
+    Only mark as True if the problem statement is so vague that it would be completely impossible to work with.
     """
     return prompt
 
@@ -53,7 +56,7 @@ def is_vague_problem_statement(instance, api_key, base_url):
     response = get_llm(prompt, api_key, base_url)
     
     if not response:
-        return True  # Consider vague if API fails
+        return False  # Consider not vague if API fails (less strict)
         
     try:
         match = re.search(r'<judgement>(True|False)</judgement>', response, re.IGNORECASE)
@@ -72,11 +75,11 @@ def is_vague_problem_statement(instance, api_key, base_url):
         print(f"Error parsing LLM response: {e}")
         return False
 
-def check_code_quality(instance, min_patch_length=100, max_patch_length=100000):
-    """Check basic code quality based on heuristics"""
+def check_code_quality(instance, min_patch_length=50, max_patch_length=200000):
+    """Check basic code quality based on heuristics, with more lenient thresholds"""
     patch = instance.get("patch", "")
     
-    # Check patch length
+    # Check patch length (more lenient)
     if len(patch) < min_patch_length:
         return False, "Patch too short"
     
@@ -100,7 +103,7 @@ def check_code_quality(instance, min_patch_length=100, max_patch_length=100000):
     if test_files_only and len(file_matches) > 0:
         return False, "Patch contains only test files"
     
-    # Check for meaningful changes (not just comments or whitespace)
+    # Check for meaningful changes (not just comments or whitespace) - more lenient
     content_lines = 0
     added_lines = re.findall(r'\n\+[^\+]', patch)
     for line in added_lines:
@@ -108,7 +111,7 @@ def check_code_quality(instance, min_patch_length=100, max_patch_length=100000):
         if stripped and not stripped.startswith('//') and not stripped.startswith('#'):
             content_lines += 1
     
-    if content_lines < 5:
+    if content_lines < 3:  # Reduced from 5 to 3
         return False, "Too few meaningful added lines"
     
     return True, "Passed code quality checks"
@@ -117,11 +120,11 @@ def check_problem_quality(instance, disallowed_phrases):
     """Check problem statement quality based on heuristics"""
     problem = instance.get("problem_statement", "")
     
-    # Check length
-    if len(problem) < 50:
+    # Check length - more lenient
+    if len(problem) < 30:  # Reduced from 50 to 30
         return False, "Problem statement too short"
     
-    if len(problem) > 2000:
+    if len(problem) > 3000:  # Increased from 2000 to 3000
         return False, "Problem statement too long"
     
     # Check for disallowed phrases
@@ -132,53 +135,47 @@ def check_problem_quality(instance, disallowed_phrases):
     
     return True, "Passed problem quality checks"
 
-def process_instance(instance):
-    glm_api_key = "abvRuB8YBgs92Ns3NzEtaHCkuFV4cJqVVCUJirfe7bqnyeP0mFXKRA4FyaLgctoA"
-    glm_base_url = "https://api.chatglm.cn/v1"
-    
-    disallowed_phrases = [
-        "homework", "assignment", "exercise", "I don't know", 
-        "I'm not sure", "unclear", "confused", "what do you mean",
-        "can you explain", "please clarify", "don't understand"
-    ]
-
+def process_instance(instance, api_key, base_url):
     try:
         # Check if required fields exist
         for field in ["problem_statement", "patch"]:
             if field not in instance or not instance[field]:
                 return None
         
+        # Check if ci_name_list is empty
+        if "ci_name_list" not in instance or not instance["ci_name_list"]:
+            return None
+        
         # Step 1: Files that have more than 5 diffs
         count = instance["patch"].count("diff --git a/")
         if count > 5:
             return None
         
-        # Step 2: Check basic problem quality
-        problem_passed, problem_reason = check_problem_quality(instance, disallowed_phrases)
-        if not problem_passed:
-            return None
-        
-        # Step 3: Check basic code quality
+        # Step 2: Check basic code quality
         code_passed, code_reason = check_code_quality(instance)
         if not code_passed:
             return None
         
-        # Step 4: Check if the problem statement is vague (using LLM)
-        if is_vague_problem_statement(instance, glm_api_key, glm_base_url):
+        # Step 3: Check problem quality using custom heuristics
+        disallowed_phrases = []  # Add any disallowed phrases here if needed
+        problem_passed, problem_reason = check_problem_quality(instance, disallowed_phrases)
+        if not problem_passed:
             return None
         
-        # All checks passed, return the instance
+        # Step 4: Check if the problem statement is vague (using LLM)
+        if is_vague_problem_statement(instance, api_key, base_url):
+            return None
+        
         return instance
     except Exception as e:
         print(f"Error processing instance: {str(e)}")
         return None
 
-def process_data_parallel(instances, output_file, num_workers=50):
+def process_data_parallel(instances, output_file, api_key, base_url, num_workers=50):
     results = []
     processed_count = 0
     rejected_count = 0
     
-    # Create stats dictionary
     rejection_stats = {
         "total_rejected": 0,
         "reasons": {
@@ -186,13 +183,15 @@ def process_data_parallel(instances, output_file, num_workers=50):
             "poor_problem_quality": 0,
             "poor_code_quality": 0,
             "vague_problem": 0,
+            "empty_ci_name_list": 0,
+            "missing_required_fields": 0,
             "processing_error": 0
         }
     }
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
         futures = [
-            executor.submit(process_instance, instance)
+            executor.submit(process_instance, instance, api_key, base_url)
             for instance in instances
         ]
 
@@ -213,7 +212,6 @@ def process_data_parallel(instances, output_file, num_workers=50):
                     rejection_stats["reasons"]["processing_error"] += 1
                 progress.update(1)
 
-    # Calculate acceptance rate
     total = len(instances)
     acceptance_rate = (processed_count / total) * 100 if total > 0 else 0
     
@@ -225,13 +223,29 @@ def process_data_parallel(instances, output_file, num_workers=50):
     return results
 
 if __name__ == "__main__":
-    input_file = "merged_swe_dataset.jsonl"
-    output_file = "processed_swe_dataset.jsonl"
+    parser = argparse.ArgumentParser(description="Filter code problem statements")
+    parser.add_argument("--input", type=str, help="Input file path (.json or .jsonl)")
+    parser.add_argument("--output", type=str, help="Output file path")
+    parser.add_argument("--api-key", type=str, help="API key for LLM service")
+    parser.add_argument("--base-url", type=str, help="Base URL for LLM service")
+    parser.add_argument("--workers", type=int, default=64, help="Number of worker threads")
+    
+    args = parser.parse_args()
+    
+    input_file = args.input
+    output_file = args.output
+    api_key = args.api_key
+    base_url = args.base_url
+    num_workers = args.workers
 
     if os.path.exists(output_file):
         os.remove(output_file)
 
-    with jsonlines.open(input_file, "r") as f:
-        instances = list(f)
+    if input_file.endswith(".json"):
+        with open(input_file, "r") as f:
+            instances = json.load(f)
+    else:
+        with jsonlines.open(input_file, "r") as f:
+            instances = list(f)
 
-    process_data_parallel(instances, output_file)
+    process_data_parallel(instances, output_file, api_key, base_url, num_workers)
