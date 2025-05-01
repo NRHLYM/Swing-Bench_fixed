@@ -221,11 +221,12 @@ def battle_one_turn(
         print(f'golden_patch_result: {golden_patch_result["result"]}')
         for _ in range(turns):
             # -- Stage 1: patch, test individually generation and verification.
-            
             # Case 1: patch generation and verification.
             patch = patch_generator.generate(data)
             if patch is None:
-                print(f'patch is None: {patch}')
+                print('patch is None')
+            else:
+                print(f"patch is {patch}")
             generated_patch_result = patch_verifier.verify(data, patch) # results_2
             print(f'generated_patch_result: {generated_patch_result["result"]}')
 
@@ -241,6 +242,10 @@ def battle_one_turn(
 
             # Case 2: test generation and verification.
             test = test_generator.generate(data, patch)
+            if test is None:
+                print('test is None')
+            else:
+                print(f"test is {test}")
             generated_test_result = test_verifier.verify(data, test) # results_3
             print(f'generated_test_result: {generated_test_result["result"]}')
 
@@ -458,7 +463,7 @@ if __name__ == "__main__":
     # Common args
     parser.add_argument(
         "--dataset_name",
-        default="/home/mnt/wdxu/github/SwingBench",
+        default="SwingBench/SwingBench",
         type=str,
         help="Name of dataset or path to JSON file.",
     )
@@ -468,9 +473,9 @@ if __name__ == "__main__":
     )
 
     # default models
-    base_url = "http://147.8.181.248:8000/v1/"#'https://dashscope.aliyuncs.com/compatible-mode/v1/'
-    api_key = "no-api-key"#'sk-826b874003eb4f309bd65c7a6f0f79b5'
-    model = "/home/mnt/wdxu/models/Qwen2.5-Coder-32B-Instruct"#'qwen-plus'
+    base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"#'https://dashscope.aliyuncs.com/compatible-mode/v1/'
+    api_key = "sk-826b874003eb4f309bd65c7a6f0f79b5"#'sk-826b874003eb4f309bd65c7a6f0f79b5'
+    model = "qwen-max-latest"#'qwq-plus'
     # Local execution args
     parser.add_argument(
         "--workdir", type=str, default=os.environ["SWING_TESTBED_PATH"], help="Work directory"

@@ -62,16 +62,16 @@ class RawDataCodeEditor(CodeEditorBase):
         if tok_model is not None:
             self.tokenizer = AutoTokenizer.from_pretrained(tok_model)
         else:
-            self.tokenizer = AutoTokenizer.from_pretrained(model)
-        for each in self.client.models.list():
-            # only have one model.
-            print("--------------------------------0")
-            print(each)
-            print("--------------------------------1")
-            if hasattr(each, "max_model_len"):
-                self.max_model_len = int(each.max_model_len)
-            break
-
+            self.tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-7B-Instruct")
+        # for each in self.client.models.list():
+        #     # only have one model.
+        #     print("--------------------------------0")
+        #     print(each)
+        #     print("--------------------------------1")
+        #     if hasattr(each, "max_model_len"):
+        #         self.max_model_len = int(each.max_model_len)
+        #     break
+        self.max_model_len = 131072 
         system_prompt = swing_patch_system_prompt if self.role == "patch" else swing_test_system_prompt
         system_tokens = self.tokenizer.encode(system_prompt)
         other_content_tokens = swing_patch_function if self.role == "patch" else swing_test_function
@@ -458,9 +458,7 @@ def generate_git_diff_batch(code_edits: list[dict], base_path: str) -> dict:
     diffs = {}
     
     with tempfile.TemporaryDirectory() as tmp_dir:
-        subprocess.run("git init -b main -q", shell=True, cwd=tmp_dir)
-        subprocess.run("git config user.name 'test'", shell=True, cwd=tmp_dir)
-        subprocess.run("git config user.email 'test@example.com'", shell=True, cwd=tmp_dir)
+        subprocess.run("git init .", shell=True, cwd=tmp_dir)
 
         for file_path, file_edits in edits_by_file.items():
             file_dir = os.path.dirname(file_path)
@@ -496,7 +494,7 @@ def generate_git_diff_batch(code_edits: list[dict], base_path: str) -> dict:
                 f.write(modified_content)
             
             result = subprocess.run(
-                f"git diff HEAD {file_path}", 
+                f"git diff ", 
                 shell=True, 
                 capture_output=True,
                 cwd=tmp_dir
@@ -504,12 +502,6 @@ def generate_git_diff_batch(code_edits: list[dict], base_path: str) -> dict:
             diff_output = result.stdout.decode("utf-8")
             diffs[file_path] = diff_output
             
-            subprocess.run(
-                f"git add {file_path} && git commit -m 'edited code'",
-                shell=True,
-                cwd=tmp_dir
-            )
-
     return diffs
 
 if __name__ == "__main__":
