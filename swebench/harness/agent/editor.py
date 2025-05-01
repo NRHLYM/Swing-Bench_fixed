@@ -95,8 +95,8 @@ class RawDataCodeEditor(CodeEditorBase):
                 return None, json_content
             else:
                 return repaired_json, ""
-        if 'code_edited' not in json_result or 'test_code' not in json_result:
-            return None, json_result
+        if 'code_edits' not in json_result and 'test_cases' not in json_result:
+            return None, json_content
 
         return json_result, ""
 
@@ -120,6 +120,7 @@ class RawDataCodeEditor(CodeEditorBase):
                 # input = origin_input + "\n " + \
                 #     (swing_patch_retry_prompt if role == "patch" else swing_test_retry_prompt) + raw_resposne
                 print(f'Failed to parse json format response. Retry {i+1} times')
+                print(f'response.: {response.choices[0].message.content}')
                 continue
             else:
                 break
@@ -408,9 +409,6 @@ def process_file_edits(file_path: str, file_edits: list[dict], original_content:
 
     for edit in file_edits:
         if "code_to_be_modified" in edit:
-            if "code_edited" not in edit:
-                print(f"No code_edited in {file_path}. Skipping this edit.")
-                continue
             code_to_be_modified = edit["code_to_be_modified"]
             code_edited = edit["code_edited"]
         else:
