@@ -71,7 +71,7 @@ class RawDataCodeEditor(CodeEditorBase):
         #     if hasattr(each, "max_model_len"):
         #         self.max_model_len = int(each.max_model_len)
         #     break
-        self.max_model_len = 131072 
+        self.max_model_len = 129023 
         system_prompt = swing_patch_system_prompt if self.role == "patch" else swing_test_system_prompt
         system_tokens = self.tokenizer.encode(system_prompt)
         other_content_tokens = swing_patch_function if self.role == "patch" else swing_test_function
