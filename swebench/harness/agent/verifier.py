@@ -136,8 +136,8 @@ class PatchGenerator(Generator):
                               f"Code:\n{chunk['code']}\n")
         
         # Add the context information to the problem statement
-        enhanced_problem = data.problem_statement + "\n\n" + "RELEVANT CODE BLOCKS:\n" + "\n".join(context_info)
-        
+        # enhanced_problem = data.problem_statement + "\n\n" + "RELEVANT CODE BLOCKS:\n" + "\n".join(context_info)
+        enhanced_problem = data.problem_statement
         # Use the original file list as a backup, and provide the code chunks
         file_path_list = [hit["docid"] for hit in code_snippet["hits"]]
         code_snippet_list = [hit["contents"] for hit in code_snippet["hits"]]

@@ -30,7 +30,11 @@ class SwingbenchInstance:
     version: str = ""
     FAIL_TO_PASS: str = ""
     PASS_TO_PASS: str = ""
-    
+    enhanced_problem: str = ""
+    original_code: str = ""
+    file_paths: list[str] = field(default_factory=list)
+    total_tokens: int = 0
+
     def __str__(self):
         return f"SwingbenchInstance( " \
                f"repo={self.repo}, " \
