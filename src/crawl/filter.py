@@ -143,7 +143,7 @@ def process_instance(instance, api_key, base_url):
                 return None
         
         # Check if ci_name_list is empty
-        if "ci_name_list" not in instance or not instance["ci_name_list"]:
+        if "ci_name_list" not in instance or not instance["ci_name_list"] or len(instance["ci_name_list"]) <= 3:
             return None
         
         # Step 1: Files that have more than 5 diffs
