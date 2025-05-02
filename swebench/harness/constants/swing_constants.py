@@ -26,6 +26,10 @@ class SwingbenchInstance:
     merge_commit_sha: str = ""
     ci_name_list: list[str] = field(default_factory=list)
     retrieved_files: dict[str, str] = field(default_factory=dict)
+    environment_setup_commit: str = ""
+    version: str = ""
+    FAIL_TO_PASS: str = ""
+    PASS_TO_PASS: str = ""
     
     def __str__(self):
         return f"SwingbenchInstance( " \

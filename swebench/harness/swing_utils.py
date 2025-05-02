@@ -164,14 +164,27 @@ def load_swingbench_dataset(
     split: str = None,
     with_ci: bool = False
 ) -> list[SwingbenchInstance]:
-    dataset = load_dataset(dataset_name, sub_dataset_identifier, split=split)
+    multi_language_choice = False
+    try:
+        dataset = load_dataset(dataset_name, sub_dataset_identifier, split=split)
+    except:
+        # multi-language choice
+        print(f'dataset_name: {dataset_name}, sub_dataset_identifier: {sub_dataset_identifier}, split: {split}')
+        dataset = load_dataset(dataset_name, split=split)[sub_dataset_identifier]
+        multi_language_choice = True
     instance_list = []
     if split is None:
-        identifier = sub_dataset_identifier
-        for instance in dataset[identifier]:
-            if with_ci and not instance['ci_name_list']:
-                continue
-            instance_list.append(SwingbenchInstance(**instance))
+        if multi_language_choice:
+            for instance in dataset:    
+                if with_ci and not instance['ci_name_list']:
+                    continue
+                instance_list.append(SwingbenchInstance(**instance))
+        else:
+            identifier = sub_dataset_identifier
+            for instance in dataset[identifier]:    
+                if with_ci and not instance['ci_name_list']:
+                    continue
+                instance_list.append(SwingbenchInstance(**instance))
     else:
         instance_list = [SwingbenchInstance(**instance) for instance in dataset]
     return instance_list

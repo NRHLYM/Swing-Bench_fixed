@@ -156,6 +156,7 @@ class PatchGenerator(Generator):
             }
         )
         if response is None:
+            print(f'patch generator response is None: {response}')
             return None
         base_path = f"{self.workdir}/{data.instance_id}_{str(uuid4())}"
 
@@ -170,8 +171,10 @@ class PatchGenerator(Generator):
         subprocess.run(["git", "checkout", data.base_commit], cwd=base_path)
 
         patch = generate_git_diff_batch(response["code_edits"], base_path)
-        # if os.path.exists(base_path):
-        #     shutil.rmtree(base_path)
+        if patch is None:
+            print(f'generate_git_diff_batch merged failed. patch is None. code_edits: {response["code_edits"]}. base_path: {base_path}')
+            return None
+
         return patch
 
 
@@ -278,6 +281,7 @@ class TestGenerator(Generator):
             }
         )
         if response is None:
+            print(f'test generator response is None: {response}')
             return None
         base_path = f"{self.workdir}/{data.instance_id}_{str(uuid4())}"
 
@@ -291,16 +295,11 @@ class TestGenerator(Generator):
         shutil.copytree(repo_path, base_path)
         subprocess.run(["git", "checkout", data.base_commit], cwd=base_path)
     
-        try:
-            patch = generate_git_diff_batch(response["test_cases"], base_path)
-        except Exception as e:
-            print(f"Error generating test cases: {e}")
-            print(f"Response: {response}")
-            print(f"File path list: {file_path_list}")
-            print(f"Code snippet list: {code_snippet_list}")
+        patch = generate_git_diff_batch(response["test_cases"], base_path)
+        if patch is None:
+            print(f'generate_git_diff_batch merged failed. patch is None. test_cases: {response["test_cases"]}. base_path: {base_path}')
             return None
-        # if os.path.exists(base_path):
-        #     shutil.rmtree(base_path)
+
         return patch
 
 
