@@ -464,8 +464,11 @@ def generate_git_diff_batch(code_edits: list[dict], base_path: str) -> dict:
         for file_path, file_edits in edits_by_file.items():
             file_dir = os.path.dirname(file_path)
             if file_dir:
-                os.makedirs(os.path.join(tmp_dir, file_dir), exist_ok=True)
-                os.makedirs(os.path.join(base_path, file_dir), exist_ok=True)
+                try:
+                    os.makedirs(os.path.join(tmp_dir, file_dir), exist_ok=True)
+                    os.makedirs(os.path.join(base_path, file_dir), exist_ok=True)
+                except Exception as e:
+                    print(f"Error creating directories for {file_path}: {e}")
             
             temp_file_path = os.path.join(tmp_dir, file_path)
             original_file_path_in_base = os.path.join(base_path, file_path)
@@ -476,23 +479,27 @@ def generate_git_diff_batch(code_edits: list[dict], base_path: str) -> dict:
                 subprocess.run(f"touch {original_file_path_in_base}", shell=True)
             
             original_content = ""
-            if file_exists:
-                with open(original_file_path_in_base, 'r') as f:
-                    original_content = f.read()
-            
-            modified_content = process_file_edits(file_path, file_edits, original_content)
-            
-            with open(temp_file_path, "w") as f:
-                f.write(original_content)
-            
-            subprocess.run(
-                f"git add {file_path} && git commit -m 'original code'",
-                shell=True,
-                cwd=tmp_dir
-            )
-            
-            with open(temp_file_path, "w") as f:
-                f.write(modified_content)
+            try:
+                if file_exists:
+                    with open(original_file_path_in_base, 'r') as f:
+                        original_content = f.read()
+                
+                modified_content = process_file_edits(file_path, file_edits, original_content)
+                
+                with open(temp_file_path, "w") as f:
+                    f.write(original_content)
+                
+                subprocess.run(
+                    f"git add {file_path} && git commit -m 'original code'",
+                    shell=True,
+                    cwd=tmp_dir
+                )
+                
+                with open(temp_file_path, "w") as f:
+                    f.write(modified_content)
+            except Exception as e:
+                print(f"Error processing file {file_path}: {e}")
+                continue
             
             result = subprocess.run(
                 f"git diff ", 

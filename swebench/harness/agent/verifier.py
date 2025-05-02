@@ -84,9 +84,13 @@ class PatchGenerator(Generator):
         print("Retrieving data files from retriever to data:{}".format(data))
         code_snippet = self.retriever.retrieve(data, self.src_folder, k=self.retrieve_file_num)
         print(f"self.retrieve_file_num: {self.retrieve_file_num}")
-        print(f"len of code_snippet: {len(code_snippet)}")
-        print(f"code_snippet.keys: {code_snippet.keys()}")
-        print(f"len(code_snippet['hits']): {len(code_snippet['hits'])}")
+        if code_snippet is not None:
+            print(f"len of code_snippet: {len(code_snippet)}")
+            print(f"len(code_snippet['hits']): {len(code_snippet['hits'])}")
+            print(f"code_snippet.keys: {code_snippet.keys()}")
+        else:
+            print('Warning: code_snippet is None')
+            return None
         # print(f"code_snippet[hits].keys: {code_snippet['hits'][0].keys()}")
         # print(f"code_snippet[hits][0]: {code_snippet['hits'][0]}")
         # print(f"code_snippet[hits][0]['docid']: {code_snippet['hits'][0]['docid']}")
@@ -164,11 +168,18 @@ class PatchGenerator(Generator):
         repo_path = f"{self.src_folder}/{data.repo.replace('/', '__')}"
 
         if os.path.exists(base_path):
-            # remove existing repo
-            shutil.rmtree(base_path)
+            try:
+                # remove existing repo
+                shutil.rmtree(base_path)
+            except Exception as e:
+                print(f"Error removing existing repo {base_path}: {e}. Skipping...")
 
-        shutil.copytree(repo_path, base_path)
-        subprocess.run(["git", "checkout", data.base_commit], cwd=base_path)
+        try:
+            shutil.copytree(repo_path, base_path)
+            subprocess.run(["git", "checkout", data.base_commit], cwd=base_path)
+        except Exception as e:
+            print(f"Error copying repo {repo_path} to {base_path}: {e}. Skipping...")
+            return None
 
         patch = generate_git_diff_batch(response["code_edits"], base_path)
         if patch is None:
@@ -206,9 +217,14 @@ class TestGenerator(Generator):
         # TODO(wdxu): remove this hack.
         data.hints_text += "test, testcase, unittest."
         code_snippet = self.retriever.retrieve(data, self.src_folder, k=self.retrieve_file_num)
-        print(f"self.retrieve_file_num: {self.retrieve_file_num}")
-        print(f"len of code_snippet: {len(code_snippet)}")
-        print(f"code_snippet.keys: {code_snippet.keys()}")
+        if code_snippet is not None:
+            print(f"len of code_snippet: {len(code_snippet)}")
+            print(f"len(code_snippet['hits']): {len(code_snippet['hits'])}")
+            print(f"code_snippet.keys: {code_snippet.keys()}")
+        else:
+            print('Warning: code_snippet is None')
+            return None
+
         # print(f"code_snippet[hits].keys: {code_snippet['hits'][0].keys()}")
         # print(f"code_snippet[hits][0]: {code_snippet['hits'][0]}")
         
@@ -289,12 +305,19 @@ class TestGenerator(Generator):
         repo_path = f"{self.src_folder}/{data.repo.replace('/', '__')}"
 
         if os.path.exists(base_path):
-            # remove existing repo
-            shutil.rmtree(base_path)
+            try:
+                # remove existing repo
+                shutil.rmtree(base_path)
+            except Exception as e:
+                print(f"Error removing existing repo {base_path}: {e}. Skipping...")
 
-        shutil.copytree(repo_path, base_path)
-        subprocess.run(["git", "checkout", data.base_commit], cwd=base_path)
-    
+        try:
+            shutil.copytree(repo_path, base_path)
+            subprocess.run(["git", "checkout", data.base_commit], cwd=base_path)
+        except Exception as e:
+            print(f"Error copying repo {repo_path} to {base_path}: {e}. Skipping...")
+            return None
+
         patch = generate_git_diff_batch(response["test_cases"], base_path)
         if patch is None:
             print(f'generate_git_diff_batch merged failed. patch is None. test_cases: {response["test_cases"]}. base_path: {base_path}')

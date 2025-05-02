@@ -132,6 +132,10 @@ def build_repo_index(
                     )
             
             index_path = commit_index_path / "index"
+            if not os.path.exists(index_path):
+                print(f"Creating index directory {index_path}")
+                os.makedirs(index_path)
+
             cmd = [
                 python,
                 "-m",
@@ -153,8 +157,8 @@ def build_repo_index(
             documents_path.unlink()
 
         except Exception as e:
-            logger.error(f"Failed to build index for commit {commit}")
-            logger.error(str(e))
+            print(f"Failed to build index for commit {commit}")
+            print(str(e))
             continue
 
         
