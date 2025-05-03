@@ -10,19 +10,25 @@ from swing_chunker import CodeChunker
 # 提取代码功能函数
 def extract_added_code_from_patch(patch: str) -> str:
     """
-    从diff patch字符串中提取所有新增的代码行（以+开头，且不是diff元信息），返回合并后的代码字符串。
+    从diff patch字符串中提取应用补丁后的完整代码块，包含原有代码和新增代码，但不包含被删除的代码行。
     """
-    added_lines = []
+    result_lines = []
     for line in patch.splitlines():
         # 跳过diff元信息和文件头
         if line.startswith('+++') or line.startswith('---') or line.startswith('diff --git') or line.startswith('@@'):
             continue
-        # 只保留以+开头的新增代码（但不是+++, 避免文件头）
-        if line.startswith('+') and not line.startswith('+++'):
-            # 去掉开头的+号
-            added_lines.append(line[1:])
+        # 添加不以-开头的内容行（上下文行和新增行）
+        if not line.startswith('-'):
+            # 如果是新增行，去掉开头的+号
+            if line.startswith('+'):
+                result_lines.append(line[1:])
+            else:
+                result_lines.append(line)
+    result =    '\n'.join(result_lines)
+    # print("result: ", result)
+    # assert 1 == 2
     # 合并为一个代码字符串
-    return '\n'.join(added_lines)
+    return result
 
 # 备选的代码切分方法
 def fallback_chunk_code(code, language):
@@ -98,6 +104,7 @@ def process_language_data(input_path, language):
     """Process data for a specific language and create index dataset."""
     # Initialize chunker for the specific language
     chunker = CodeChunker(language=language, chunk_type="function")
+    chunker_block = CodeChunker(language=language, chunk_type="block")
     
     # Load data
     print(f"正在加载JSON数据: {input_path}")
@@ -110,6 +117,7 @@ def process_language_data(input_path, language):
     total_processed = 0
     successful_chunks = 0
     fallback_chunks = 0
+    complete_fallback_chunks = 0
     
     for item in tqdm(data, desc=f"处理 {language} 数据"):
         total_processed += 1
@@ -126,21 +134,37 @@ def process_language_data(input_path, language):
         chunks = chunker.chunk(code)
         
         if not chunks:  # 如果TreeSitter没有返回任何块
-            fallback_chunks += 1
-            # 使用备选方法
-            chunks = [{
-                "type": "function",
-                "name": "",
-                "code": code,
-                "start_line": 1,
-                "end_line": len(code.split('\n')),
-                "metadata": {
-                    "source": "fallback_method"
-                }
-            }]
-            print(f"警告: TreeSitter未返回切分结果，使用备选方法")
+            # 尝试使用block切分作为备选方法
+            chunks = chunker_block.chunk(code)
+            
+            if not chunks:  # 如果block切分也没有返回任何块
+                fallback_chunks += 1
+                complete_fallback_chunks += 1
+                # 使用完整代码作为最后的备选方法
+                chunks = [{
+                    "type": "function",
+                    "name": "",
+                    "code": code,
+                    "start_line": 1,
+                    "end_line": len(code.split('\n')),
+                    "metadata": {
+                        "source": "fallback_method"
+                    }
+                }]
+                print(f"警告: TreeSitter未返回任何切分结果，使用完整代码作为最后的备选方法")
+            else:
+                print(f"信息: 函数切分失败，使用block切分成功，获取了{len(chunks)}个代码块")
+                fallback_chunks += 1
+                # 为block切分的结果添加信息
+                for i, chunk in enumerate(chunks):
+                    chunk["metadata"] = chunk.get("metadata", {})
+                    chunk["metadata"]["source"] = "block_chunking"
+                    # 如果没有名称，添加一个基于类型的名称
+                    if not chunk.get("name"):
+                        chunk["name"] = f"{chunk.get('type', 'block')}_{i+1}"
         else:
             successful_chunks += 1
+            print(f"信息: 函数切分成功，获取了{len(chunks)}个函数块")
         
         # 添加结果
         for chunk in chunks:
@@ -160,9 +184,9 @@ def process_language_data(input_path, language):
     print("\n" + "="*50)
     print(f"【{language.upper()} 语言处理统计】")
     print(f"总处理条目: {total_processed}")
-    if total_processed > 0:
-        print(f"成功切分: {successful_chunks} ({successful_chunks/total_processed*100:.2f}%)")
-        print(f"使用备选方法: {fallback_chunks} ({fallback_chunks/total_processed*100:.2f}%)")
+    print(f"成功切分: {successful_chunks} ({successful_chunks/total_processed*100:.2f}%)")
+    print(f"使用备选block切分: {fallback_chunks-complete_fallback_chunks} ({(fallback_chunks-complete_fallback_chunks)/total_processed*100:.2f}%)")
+    print(f"完全失败使用原始代码: {complete_fallback_chunks} ({complete_fallback_chunks/total_processed*100:.2f}%)")
     print("="*50 + "\n")
     
     return result_data
@@ -206,7 +230,8 @@ def process_arrow_datasets(dataset_path, output_base_dir):
     total_all_langs = 0
     success_all_langs = 0
     fallback_all_langs = 0
-    
+    complete_fallback_all_langs = 0
+    #assert 1 == 0
     for lang in languages:
         if lang not in dataset:
             print(f"警告: {lang}数据集不存在，跳过")
@@ -215,7 +240,7 @@ def process_arrow_datasets(dataset_path, output_base_dir):
         print(f"\n\n===== {lang.upper()} 数据集 =====")
         lang_dataset = dataset[lang]
         chunker = CodeChunker(language=lang, chunk_type="function")
-        
+        chunker_block = CodeChunker(language=lang, chunk_type="block")
         # 将Arrow数据集转换为索引格式（question, answer）
         print(f"转换 {lang} 数据集为索引格式...")
         
@@ -252,6 +277,7 @@ def process_arrow_datasets(dataset_path, output_base_dir):
         total_processed = 0
         successful_chunks = 0
         fallback_chunks = 0
+        complete_fallback_chunks = 0
         
         for item in tqdm(lang_dataset, desc=f"处理 {lang} 数据"):
             total_processed += 1
@@ -267,32 +293,37 @@ def process_arrow_datasets(dataset_path, output_base_dir):
             chunks = chunker.chunk(code)
             #print("patch: \n\n", patch)
             if not chunks:  # 如果TreeSitter没有返回任何块
-                # print("code: \n\n", code)
-                # print("patch: \n\n", patch)
-                #assert 1==0
-                fallback_chunks += 1
+                # 尝试使用block切分作为备选方法
+                chunks = chunker_block.chunk(code)
                 
-                # Create a dictionary to store the code
-                chunks = [{
-                    "type": "function",  # Default type
-                    "name": "",          # Default empty name
-                    "code": code,        # The actual code content
-                    "start_line": 1,     # Default start line
-                    "end_line": len(code.split('\n')),  # Count lines in code
-                    "type": "fallback",
-                    "metadata": {
-                        "source": "fallback_method"
-                    }
-                }]
-                
-                #print(f"警告: TreeSitter未返回切分结果，使用备选方法")
-            #     continue
+                if not chunks:  # 如果block切分也没有返回任何块
+                    #fallback_chunks += 1
+                    complete_fallback_chunks += 1
+                    # 使用完整代码作为最后的备选方法
+                    chunks = [{
+                        "type": "function",
+                        "name": "",
+                        "code": code,
+                        "start_line": 1,
+                        "end_line": len(code.split('\n')),
+                        "metadata": {
+                            "source": "fallback_method"
+                        }
+                    }]
+                    print(f"警告: TreeSitter block未返回任何切分结果，使用完整代码作为最后的备选方法")
+                else:
+                    print(f"信息: 函数切分失败，使用block切分成功，获取了{len(chunks)}个代码块")
+                    fallback_chunks += 1
+                    # 为block切分的结果添加信息
+                    for i, chunk in enumerate(chunks):
+                        chunk["metadata"] = chunk.get("metadata", {})
+                        chunk["metadata"]["source"] = "block_chunking"
+                        # 如果没有名称，添加一个基于类型的名称
+                        if not chunk.get("name"):
+                            chunk["name"] = f"{chunk.get('type', 'block')}_{i+1}"
             else:
                 successful_chunks += 1
-                # print("chunks[0]: \n\n", chunks[0])
-                # print("len(chunks): \n\n", len(chunks))
-                #assert 1==0
-                # chunks = fallback_chunk_code(code, lang)
+                print(f"信息: 函数切分成功，获取了{len(chunks)}个函数块")
 
             
             # 添加结果
@@ -331,13 +362,15 @@ def process_arrow_datasets(dataset_path, output_base_dir):
         total_all_langs += total_processed
         success_all_langs += successful_chunks
         fallback_all_langs += fallback_chunks
+        complete_fallback_all_langs += complete_fallback_chunks
         
         print(f"已将 {count} 条 {lang} 数据转换为索引格式并保存到 {output_path}")
         print("\n" + "="*50)
         print(f"【{lang.upper()} 语言处理统计】")
         print(f"总处理条目: {total_processed}")
         print(f"成功切分: {successful_chunks} ({successful_chunks/total_processed*100:.2f}%)")
-        print(f"使用备选方法: {fallback_chunks} ({fallback_chunks/total_processed*100:.2f}%)")
+        print(f"使用备选block切分: {fallback_chunks-complete_fallback_chunks} ({(fallback_chunks-complete_fallback_chunks)/total_processed*100:.2f}%)")
+        print(f"完全失败使用原始代码: {complete_fallback_chunks} ({complete_fallback_chunks/total_processed*100:.2f}%)")
         print("="*50 + "\n")
         
         # 显示示例数据
@@ -355,7 +388,8 @@ def process_arrow_datasets(dataset_path, output_base_dir):
     print("【所有语言处理统计信息汇总】")
     print(f"总处理条目: {total_all_langs}")
     print(f"成功切分: {success_all_langs} ({success_all_langs/total_all_langs*100:.2f}% 成功率)")
-    print(f"使用备选方法: {fallback_all_langs} ({fallback_all_langs/total_all_langs*100:.2f}% 失败率)")
+    print(f"使用block备选切分: {fallback_all_langs-complete_fallback_all_langs} ({(fallback_all_langs-complete_fallback_all_langs)/total_all_langs*100:.2f}%)")
+    print(f"完全失败使用原始代码: {complete_fallback_all_langs} ({complete_fallback_all_langs/total_all_langs*100:.2f}%)")
     print("="*60 + "\n")
     
     return language_datasets, language_counts
