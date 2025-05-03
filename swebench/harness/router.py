@@ -137,11 +137,11 @@ class CargoCITool(CIToolBase):
     def run_ci(self):
         """Run tests and save results to log file"""
         try:
-            logger.info(f"Starting CI run for {self.config['repo']} (ID: {self.config.get('instance_id', 'unknown')})")
+            print(f"Starting CI run for {self.config['repo']} (ID: {self.config.get('instance_id', 'unknown')})")
 
             task = self.task
             self._execute_scripts(cwd=task.target_dir)
-            logger.info(f"Running cargo test in {task.target_dir}")
+            print(f"Running cargo test in {task.target_dir}")
             
             result = subprocess.run(
                 ["cargo", "test"],
@@ -151,7 +151,7 @@ class CargoCITool(CIToolBase):
                 stderr=subprocess.PIPE
             )
             
-            logger.info(f"Cargo test completed with return code: {result.returncode}")
+            print(f"Cargo test completed with return code: {result.returncode}")
             
             test_results = self.parse_test_results(result.stdout)
             output = {"unit_test": {
@@ -178,7 +178,7 @@ class CargoCITool(CIToolBase):
         instance_id = self.config.get("instance_id", "unknown")
         script_dir = os.path.join(self.config["workdir"], f"{repo_name}_{instance_id}")
         
-        logger.info(f"Creating script directory: {script_dir}")
+        print(f"Creating script directory: {script_dir}")
         # Create script directory
         os.makedirs(script_dir, exist_ok=True)
         
@@ -187,7 +187,7 @@ class CargoCITool(CIToolBase):
         with open(env_script_path, 'w') as f:
             f.write('\n'.join(self.task.env_script))
         
-        logger.info("Executing environment setup script")
+        print("Executing environment setup script")
         subprocess.run(
             ['chmod', '+x', env_script_path], 
             check=True,
@@ -210,7 +210,7 @@ class CargoCITool(CIToolBase):
 
         self.check_env()
 
-        logger.info("Executing evaluation script")
+        print("Executing evaluation script")
         subprocess.run(
             ['chmod', '+x', eval_script_path], 
             check=True,
@@ -385,6 +385,10 @@ class ActCITool(CIToolBase):
         return results
 
     def _run_act_with_lock(self, ci, target_dir, order, pool):
+        if type(ci) == str:
+            import ast
+            # cast str to list
+            ci = ast.literal_eval(ci)
         value = self.ci_dict.get(ci[0])
         if value is not None:
             port = pool.acquire_port()
@@ -398,7 +402,7 @@ class ActCITool(CIToolBase):
             #     return
             # print(target_dir)
             # print(os.path.join(target_dir, ci[1]))
-            logger.info("Run Act with command: " + "act " + "-j " + value + " " \
+            print("Run Act with command: " + "act " + "-j " + value + " " \
                                             "-P " + "ubuntu-latest=catthehacker/ubuntu:full-latest " + \
                                             "--artifact-server-port " + str(port) + " " +\
                                             "--artifact-server-addr " + "0.0.0.0" + " " +\
@@ -451,7 +455,7 @@ class ActCITool(CIToolBase):
             path = self.config["output_dir"] + "/" + \
                    self.task.instance_id + "_"  + \
                    value + "_output.json"
-            logger.info("Run Act with command: " + "act " + "-j " + value + " " \
+            print("Run Act with command: " + "act " + "-j " + value + " " \
                                             "-P " + "ubuntu-latest=catthehacker/ubuntu:full-latest " + \
                                             "--json")
 
@@ -526,11 +530,11 @@ class ActCITool(CIToolBase):
         self.check_env()
         run_script("\n".join(task.eval_script))
 
-        logger.info(f"Starting CI run for {self.config['repo']} (ID: {self.config.get('instance_id', 'unknown')})")
+        print(f"Starting CI run for {self.config['repo']} (ID: {self.config.get('instance_id', 'unknown')})")
 
         self._get_ci_job_name_id_dict(task.target_dir)
-        logger.info(f'Collected CI job name and id dict: {self.ci_dict}')
-        logger.info(f'Run ci list: {self.config["ci_name_list"]}')
+        print(f'Collected CI job name and id dict: {self.ci_dict}')
+        print(f'Run ci list: {self.config["ci_name_list"]}')
         threads = []
         for ci in self.config["ci_name_list"]:
             thread = threading.Thread(
@@ -546,7 +550,7 @@ class ActCITool(CIToolBase):
         #     self._run_act_without_lock(ci, task.target_dir)
 
         result = ActCITool._process_result(self.result_list)
-        logger.info(f"CI run completed for {self.config['repo']} (ID: {self.config.get('instance_id', 'unknown')})")
+        print(f"CI run completed for {self.config['repo']} (ID: {self.config.get('instance_id', 'unknown')})")
         return result
 
     def construct(self):
