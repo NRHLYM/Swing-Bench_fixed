@@ -35,44 +35,43 @@ bins = [
 def get_length_bins(length):
     if length < 100:
         return bins[0]
-    elif length < 250:
+    if length < 250:
         return bins[1]
-    elif length < 500:
+    if length < 500:
         return bins[2]
-    elif length < 750:
+    if length < 750:
         return bins[3]
-    elif length < 1000:
+    if length < 1000:
         return bins[4]
-    elif length < 1500:
+    if length < 1500:
         return bins[5]
-    elif length < 2000:
+    if length < 2000:
         return bins[6]
-    elif length < 2500:
+    if length < 2500:
         return bins[7]
-    elif length < 3000:
+    if length < 3000:
         return bins[8]
-    elif length < 3500:
+    if length < 3500:
         return bins[9]
-    elif length < 5000:
+    if length < 5000:
         return bins[10]
-    elif length < 7500:
+    if length < 7500:
         return bins[11]
-    elif length < 10000:
+    if length < 10000:
         return bins[12]
-    elif length < 15000:
+    if length < 15000:
         return bins[13]
-    elif length < 20000:
+    if length < 20000:
         return bins[14]
-    elif length < 25000:
+    if length < 25000:
         return bins[15]
-    elif length < 30000:
+    if length < 30000:
         return bins[16]
-    elif length < 35000:
+    if length < 35000:
         return bins[17]
-    elif length < 50000:
+    if length < 50000:
         return bins[18]
-    else:
-        return bins[19]
+    return bins[19]
 
 
 def get_length_stats(language, dataset, tokenizer_path, output_dir):
@@ -91,15 +90,16 @@ def get_length_stats(language, dataset, tokenizer_path, output_dir):
 
     dump_field_token_length_path = os.path.join(output_dir,
                                                 f"{language}_field_token_length.data")
+    # Initialize all bins
+    for field in fields:
+        for bin_name in bins:
+            stats[field][bin_name] = 0
+
     if os.path.exists(dump_field_token_length_path):
         with open(dump_field_token_length_path, "r") as f:
             for line in f:
                 _, _, field, token_length = line.strip().split()
                 bin_name = get_length_bins(int(token_length))
-                if bin_name not in stats[field]:
-                    # Initialize all bins
-                    for bin_name in bins:
-                        stats[field][bin_name] = 0
                 stats[field][bin_name] += 1
     else:
         with open(dump_field_token_length_path, "w") as f:
@@ -109,10 +109,6 @@ def get_length_stats(language, dataset, tokenizer_path, output_dir):
                         token_length = len(tokenizer.encode(instance[field]))
                         bin_name = get_length_bins(token_length)
                         f.write(f"{instance['repo']} {instance['instance_id']} {field} {token_length}\n")
-                        if bin_name not in stats[field]:
-                            # Initialize all bins
-                            for bin_name in bins:
-                                stats[field][bin_name] = 0
                         stats[field][bin_name] += 1
 
     with open(os.path.join(output_dir, f"{language}_summary.json"), "w") as f:
