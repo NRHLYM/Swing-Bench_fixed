@@ -9,47 +9,70 @@ import json
 fields = ['patch', 'test_patch', 'problem_statement', 'hints_text']
 
 
+bins = [
+    "01. 0-100",
+    "02. 100-250",
+    "03. 250-500",
+    "04. 500-750",
+    "05. 750-1000",
+    "06. 1000-1500",
+    "07. 1500-2000",
+    "08. 2000-2500",
+    "09. 2500-3000",
+    "10. 3000-3500",
+    "11. 3500-5000",
+    "12. 5000-7500",
+    "13. 7500-10000",
+    "14. 10000-15000",
+    "15. 15000-20000",
+    "16. 20000-25000",
+    "17. 25000-30000",
+    "18. 30000-35000",
+    "19. 35000-50000",
+    "20. 50000+"
+]
+
 def get_length_bins(length):
     if length < 100:
-        return "0-100"
+        return bins[0]
     elif length < 250:
-        return "100-250"
+        return bins[1]
     elif length < 500:
-        return "250-500"
+        return bins[2]
     elif length < 750:
-        return "500-750"
+        return bins[3]
     elif length < 1000:
-        return "750-1000"
+        return bins[4]
     elif length < 1500:
-        return "1000-1500"
+        return bins[5]
     elif length < 2000:
-        return "1500-2000"
+        return bins[6]
     elif length < 2500:
-        return "2000-2500"
+        return bins[7]
     elif length < 3000:
-        return "2500-3000"
+        return bins[8]
     elif length < 3500:
-        return "3000-3500"
+        return bins[9]
     elif length < 5000:
-        return "3500-5000"
+        return bins[10]
     elif length < 7500:
-        return "5000-7500"
+        return bins[11]
     elif length < 10000:
-        return "7500-10000"
+        return bins[12]
     elif length < 15000:
-        return "10000-15000"
+        return bins[13]
     elif length < 20000:
-        return "15000-20000"
+        return bins[14]
     elif length < 25000:
-        return "20000-25000"
+        return bins[15]
     elif length < 30000:
-        return "25000-30000"
+        return bins[16]
     elif length < 35000:
-        return "30000-35000"
+        return bins[17]
     elif length < 50000:
-        return "35000-50000"
+        return bins[18]
     else:
-        return "50000+"
+        return bins[19]
 
 
 def get_length_stats(language, dataset, tokenizer_path, output_dir):
@@ -65,19 +88,32 @@ def get_length_stats(language, dataset, tokenizer_path, output_dir):
         "problem_statement": {},
         "hints_text": {}
     }
+
     dump_field_token_length_path = os.path.join(output_dir,
                                                 f"{language}_field_token_length.data")
-    with open(dump_field_token_length_path, "w") as f:
-        for instance in tqdm(dataset, desc="Processing instances"):
-            for field in fields:
-                if field in instance and instance[field]:
-                    token_length = len(tokenizer.encode(instance[field]))
-                    bin_name = get_length_bins(token_length)
-                    f.write(f"{instance['repo']} {instance['instance_id']} {field} {token_length}\n")
-
-                    if bin_name not in stats[field]:
+    if os.path.exists(dump_field_token_length_path):
+        with open(dump_field_token_length_path, "r") as f:
+            for line in f:
+                _, _, field, token_length = line.strip().split()
+                bin_name = get_length_bins(int(token_length))
+                if bin_name not in stats[field]:
+                    # Initialize all bins
+                    for bin_name in bins:
                         stats[field][bin_name] = 0
-                    stats[field][bin_name] += 1
+                stats[field][bin_name] += 1
+    else:
+        with open(dump_field_token_length_path, "w") as f:
+            for instance in tqdm(dataset, desc="Processing instances"):
+                for field in fields:
+                    if field in instance and instance[field]:
+                        token_length = len(tokenizer.encode(instance[field]))
+                        bin_name = get_length_bins(token_length)
+                        f.write(f"{instance['repo']} {instance['instance_id']} {field} {token_length}\n")
+                        if bin_name not in stats[field]:
+                            # Initialize all bins
+                            for bin_name in bins:
+                                stats[field][bin_name] = 0
+                        stats[field][bin_name] += 1
 
     with open(os.path.join(output_dir, f"{language}_summary.json"), "w") as f:
         json.dump(stats, f)
