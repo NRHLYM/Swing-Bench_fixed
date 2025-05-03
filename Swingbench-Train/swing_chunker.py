@@ -33,23 +33,21 @@ class CodeReranker:
         if not self.initialized:
             return None
             
-        try:
+      
             # 使用tokenizer处理代码文本
-            inputs = self.tokenizer(code_texts, padding=True, truncation=True, 
-                                    max_length=512, return_tensors="pt").to(self.device)
-            
-            # 不计算梯度
-            with torch.no_grad():
-                outputs = self.model(**inputs)
-            
-            # 使用[CLS]标记的embedding作为整个序列的表示
-            embeddings = outputs.last_hidden_state[:, 0, :]
-            
-            # 转换为numpy数组并返回
-            return embeddings.cpu().numpy()
-        except Exception as e:
-            print(f"Error during embedding calculation: {e}")
-            return None
+        inputs = self.tokenizer(code_texts, padding=True, truncation=True, 
+                                max_length=512, return_tensors="pt").to(self.device)
+        
+        # 不计算梯度
+        with torch.no_grad():
+            outputs = self.model(**inputs)
+        
+        # 使用[CLS]标记的embedding作为整个序列的表示
+        embeddings = outputs.last_hidden_state[:, 0, :]
+        
+        # 转换为numpy数组并返回
+        return embeddings.cpu().numpy()
+
     
     def calculate_similarity(self, query_embedding, code_embeddings):
         """计算查询和代码块之间的余弦相似度"""
@@ -83,35 +81,33 @@ class CodeReranker:
         code_texts = [chunk["code"] for chunk in chunks]
         
         # 获取问题和代码的嵌入
-        try:
-            all_texts = [problem_statement] + code_texts
-            all_embeddings = self.get_embeddings(all_texts)
-            
-            if all_embeddings is None:
-                return chunks[:top_k]
-                
-            # 分离问题和代码的嵌入
-            query_embedding = all_embeddings[0]
-            code_embeddings = all_embeddings[1:]
-            
-            # 计算相似度
-            similarities = self.calculate_similarity(query_embedding, code_embeddings)
-            
-            # 获取排序后的索引
-            sorted_indices = np.argsort(-similarities)  # 降序排序
-            
-            # 选择top_k个代码块
-            top_indices = sorted_indices[:min(top_k, len(chunks))]
-            reranked_chunks = [chunks[i] for i in top_indices]
-            
-            # 添加相似度分数到代码块中
-            for i, chunk in enumerate(reranked_chunks):
-                chunk["similarity_score"] = float(similarities[top_indices[i]])
-                
-            return reranked_chunks
-        except Exception as e:
-            print(f"Error during reranking: {e}")
+     
+        all_texts = [problem_statement] + code_texts
+        all_embeddings = self.get_embeddings(all_texts)
+        
+        if all_embeddings is None:
             return chunks[:top_k]
+            
+        # 分离问题和代码的嵌入
+        query_embedding = all_embeddings[0]
+        code_embeddings = all_embeddings[1:]
+        
+        # 计算相似度
+        similarities = self.calculate_similarity(query_embedding, code_embeddings)
+        
+        # 获取排序后的索引
+        sorted_indices = np.argsort(-similarities)  # 降序排序
+        
+        # 选择top_k个代码块
+        top_indices = sorted_indices[:min(top_k, len(chunks))]
+        reranked_chunks = [chunks[i] for i in top_indices]
+        
+        # 添加相似度分数到代码块中
+        for i, chunk in enumerate(reranked_chunks):
+            chunk["similarity_score"] = float(similarities[top_indices[i]])
+            
+        return reranked_chunks
+
 
 
 
@@ -192,32 +188,22 @@ class CodeChunker:
                 ...
             ]
         """
-        # print("start chunk in here==========================:{}".format(code_snippet))
-        
         if not code_snippet or code_snippet.strip() == "":
             return []
             
         # If tree-sitter parser is available, use it
         if self.parser is not None:
-                #print("start _chunk_with_tree_sitter in here==========================")
-                #assert 1==0
-                return self._chunk_with_tree_sitter(code_snippet)
-
-            
+            return self._chunk_with_tree_sitter(code_snippet)
         else:
-            #assert 1==0
             # Use regex-based chunking as fallback
             return self._chunk_with_regex(code_snippet)
     
-    def _chunk_with_tree_sitter(self,  code_snippet: str = None) -> List[Dict[str, Any]]:
+    def _chunk_with_tree_sitter(self, code_snippet: str = None) -> List[Dict[str, Any]]:
         """Use tree-sitter to extract code chunks."""
-        #print("start _chunk_with_tree_sitter in here==========================")
         chunks = []
+        
         tree = self.parser.parse(bytes(code_snippet, "utf8"))
         root_node = tree.root_node
-        
-        # Split code into lines for line number references
-        #lines = code_snippet.split("\n")
         
         # Define query patterns based on chunk_type and language
         if self.language == "python":
@@ -237,8 +223,6 @@ class CodeChunker:
             else:
                 query_string = "(function_definition) @function (class_definition) @class"
         elif self.language == "rust":
-            #print("self.language:{}".format(self.language))
-            # Use the correct Rust syntax node type
             if self.chunk_type == "function":
                 query_string = "(function_item name: (identifier) @func_name) @function"
             elif self.chunk_type == "class" or self.chunk_type == "struct":
@@ -259,6 +243,38 @@ class CodeChunker:
                 (struct_item) @struct
                 (impl_item) @impl
                 """
+        elif self.language == "cpp":
+            if self.chunk_type == "function":
+                query_string = """
+                (function_definition) @function
+                (function_definition declarator: (_) @func_name) @function
+                (function_definition declarator: (function_declarator) @func_name) @function
+                (declaration declarator: (function_declarator)) @function
+                """
+            elif self.chunk_type == "class":
+                query_string = """
+                (class_specifier) @class
+                (class_specifier name: (type_identifier) @class_name) @class
+                (struct_specifier) @class
+                """
+            elif self.chunk_type == "block":
+                query_string = """
+                (function_definition) @block
+                (class_specifier) @block
+                (namespace_definition) @block
+                (if_statement) @block
+                (for_statement) @block
+                (while_statement) @block
+                (try_statement) @block
+                """
+            else:
+                query_string = """
+                (function_definition) @function
+                (declaration declarator: (function_declarator)) @function
+                (class_specifier) @class
+                (namespace_definition) @namespace
+                (struct_specifier) @struct
+                """
         else:
             # Default query patterns for other languages
             if self.chunk_type == "function":
@@ -271,66 +287,98 @@ class CodeChunker:
         # Create and execute the query
         language = self.parser.language
         query = language.query(query_string)
+        
         captures = query.captures(root_node)
         
-        # 新版tree-sitter返回的是字典结构，每个键是标签名称，值是匹配的节点列表
-        # 正确处理这种字典结构
-        # 我们只关注主要节点（function, class, struct等），而不是它们的子节点（如func_name）
-        main_tags = ["function", "class", "struct", "block", "impl"]
+        # Process the captures
+        nodes_with_info = {}  # To keep track of node information
         
-        # 遍历每个主要标签
+        # First pass: collect all nodes and their metadata
+        # captures is a dictionary where keys are tags and values are lists of nodes
+        main_tags = ["function", "class", "struct", "block", "impl", "namespace"]
+        name_tags = ["func_name", "class_name", "struct_name"]
+        
+        # Process main nodes first
         for tag in main_tags:
             if tag in captures:
-                # 处理这个标签下的所有节点
                 for node in captures[tag]:
-                    
-                    start_point = node.start_point
-                    end_point = node.end_point
-                    start_line = start_point[0]
-                    end_line = end_point[0]
-                    
-                    # 获取节点文本
-                    node_text = code_snippet[node.start_byte:node.end_byte]
-                    
-                    # 尝试提取名称
-                    name = ""
-                    # 看是否有对应的name节点
-                    name_tag = None
-                    if tag == "function":
-                        name_tag = "func_name"
-                    elif tag == "class":
-                        name_tag = "class_name"
-                    elif tag == "struct":
-                        name_tag = "struct_name"
-                    
-                    # 如果有对应的name标签，直接从那里获取名称
-                    if name_tag and name_tag in captures:
-                        # 需要找到对应于当前节点的name节点
-                        for name_node in captures[name_tag]:
-                            # 检查name_node是否是当前node的子节点
-                            if name_node.start_byte >= node.start_byte and name_node.end_byte <= node.end_byte:
-                                name = code_snippet[name_node.start_byte:name_node.end_byte]
-                                break
-                    
-                    # 如果没有从name标签中获取到名称，尝试从子节点中查找
-                    if not name:
-                        for child in node.children:
-                            if child.type == "identifier" or child.type == "type_identifier":
-                                name = code_snippet[child.start_byte:child.end_byte]
-                                break
-                    
-                    chunks.append({
+                    nodes_with_info[node] = {
                         "type": tag,
-                        "name": name,
-                        "code": node_text,
-                        "start_line": start_line + 1,  # 1-indexed line numbers
-                        "end_line": end_line + 1,
-                        "metadata": {
-                            "node_type": node.type,
-                            "byte_range": (node.start_byte, node.end_byte)
-                        }
-                    })
+                        "name": "",
+                        "node": node
+                    }
         
+        # Then process name nodes
+        for tag in name_tags:
+            if tag in captures:
+                parent_tag = tag.replace("_name", "")
+                for name_node in captures[tag]:
+                    # Find the parent node for this name
+                    for main_node, info in nodes_with_info.items():
+                        if info["type"] == parent_tag and name_node.start_byte >= main_node.start_byte and name_node.end_byte <= main_node.end_byte:
+                            # For C++ function declarators, extract just the function name
+                            if self.language == "cpp" and name_node.type == "function_declarator":
+                                # Try to get the actual function name from the declarator
+                                for child in name_node.children:
+                                    if child.type == "identifier":
+                                        info["name"] = code_snippet[child.start_byte:child.end_byte]
+                                        break
+                            else:
+                                info["name"] = code_snippet[name_node.start_byte:name_node.end_byte]
+                            break
+        
+        # Final pass: for nodes without names, try to extract them
+        for node, info in nodes_with_info.items():
+            if not info["name"]:
+                # Try to extract name from the node structure
+                if info["type"] == "function":
+                    if self.language == "cpp":
+                        # For C++ functions, look for identifier in function_declarator
+                        for child in node.children:
+                            if child.type == "function_declarator":
+                                for subchild in child.children:
+                                    if subchild.type == "identifier":
+                                        info["name"] = code_snippet[subchild.start_byte:subchild.end_byte]
+                                        break
+                            if info["name"]:
+                                break
+                    
+                    # Generic approach for other languages
+                    if not info["name"]:
+                        for child in node.children:
+                            if child.type == "identifier":
+                                info["name"] = code_snippet[child.start_byte:child.end_byte]
+                                break
+        
+        # Second pass: create chunks for all main nodes
+        for node, info in nodes_with_info.items():
+            start_point = node.start_point
+            end_point = node.end_point
+            start_line = start_point[0]
+            end_line = end_point[0]
+            
+            # Get the node text
+            node_text = code_snippet[node.start_byte:node.end_byte]
+            
+            # If we haven't found a name, try to extract it from child nodes
+            if not info["name"]:
+                for child in node.children:
+                    if child.type == "identifier" or child.type == "type_identifier":
+                        info["name"] = code_snippet[child.start_byte:child.end_byte]
+                        break
+            
+            chunks.append({
+                "type": info["type"],
+                "name": info["name"],
+                "code": node_text,
+                "start_line": start_line + 1,  # 1-indexed line numbers
+                "end_line": end_line + 1,
+                "metadata": {
+                    "node_type": node.type,
+                    "byte_range": (node.start_byte, node.end_byte)
+                }
+            })
+            
         return chunks
     
     def _chunk_with_regex(self, code_snippet: str = None) -> List[Dict[str, Any]]:
