@@ -43,4 +43,5 @@ csharp_instances/
 csharp_repos/
 temp/
 
-dataset/
+dataset/*
+!dataset/swing-bench-annotated-jsonl/

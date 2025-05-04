@@ -134,6 +134,21 @@ def main(**kwargs):
         get_length_stats(language, dataset, tokenizer_path, output_dir)
 
 
+def analyze_difficulty_distribution(results):
+    difficulties = [r["difficulty"] for r in results]
+    avg_difficulty = sum(difficulties) / len(difficulties)
+
+    print(f"\nDifficulty Analysis Results:")
+    print(f"Total instances: {len(results)}")
+    print(f"Average difficulty: {avg_difficulty:.3f}")
+
+    bins = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
+    for i in range(len(bins) - 1):
+        count = sum(1 for d in difficulties if bins[i] <= d < bins[i + 1])
+        percentage = (count / len(difficulties)) * 100
+        print(f"Difficulty {bins[i]:.1f}-{bins[i+1]:.1f}: {count} ({percentage:.1f}%)")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
