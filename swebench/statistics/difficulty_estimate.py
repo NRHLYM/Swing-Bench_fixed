@@ -1,64 +1,61 @@
 import json
-import jsonlines
-from typing import Dict, Any, List, Optional
 import re
-from openai import OpenAI
 from tqdm import tqdm
 import concurrent.futures
-import os
-import time
+
 import argparse
 
 from datasets import load_dataset
 
+from swebench.statistics.utils import call_api
 
-def call_api(
-    prompt: str, api_key: str, base_url: str, model: str = ""
-) -> Optional[str]:
-    for attempt in range(3):
-        try:
-            client = OpenAI(api_key=api_key, base_url=base_url)
-
-            response = client.chat.completions.create(
-                messages=[{"role": "user", "content": prompt}],
-                model=model,
-                temperature=0.0,
-            )
-
-            return response.choices[0].message.content
-        except Exception as e:
-            print(f"API call attempt {attempt+1}/3 failed: {str(e)}")
-            if attempt < 2:
-                time.sleep(2)
-
-    return None
 
 
 def create_difficulty_prompt(instance):
     prompt = f"""
-    Please evaluate the difficulty of this coding problem based on the following factors:
-    1. Clarity and complexity of the problem description
-    2. Scope and depth of code changes required
-    3. Number of technical concepts that need to be understood
-    4. Complexity of the solution
-    5. Potential edge cases and error handling requirements
+    You are a senior software engineer with over 10 years of solid experience in rust, cpp, python, and go. You possess a deep understanding of these languages and their standard libraries, along with a strong sense of problem difficulty.
+
+    Your task is to evaluate the difficulty and clarity of a coding problem from a GitHub repository, given its "Problem Statement" and "Code Changes". You need to consider the following factors:
+
+    1. **Clarity and complexity of the problem description:** Is the problem goal, input, output, and constraints clearly defined? Are there any ambiguities or missing critical details? Is the problem's logic inherently complex?
+    2. **Scope and depth of code changes required to the whole codebase:** Does the modification involve a single file/function or multiple modules? Does it require understanding interactions between different parts of the codebase? What is the overall amount of code change? Does it impact the system's architecture?
+    3. **Number of technical concepts that need to be understood:** What specific programming language features, libraries, algorithms, design patterns, or domain-specific knowledge are required to solve this problem? How complex are these concepts?
+    4. **Potential edge cases and error handling requirements:** Does the problem statement mention any specific edge cases or error conditions to consider? Does the code change require adding or modifying error handling logic? How complex are these edge cases?
+
+    Based on these factors, you will provide a Clarity Score and a Difficulty Score with detailed explanations.
+
+    Here is the problem statement and code changes, delimited by '&&&':
 
     Problem Statement:
+    &&&
     {instance["problem_statement"]}
+    &&&
 
     Code Changes:
+    &&&
     {instance["patch"]}
+    &&&
 
-    Please provide a difficulty score between 0 and 1, where:
-    - 0.0-0.2: Very easy, requires only basic code modifications
-    - 0.2-0.4: Easy, requires some code understanding and modifications
-    - 0.4-0.6: Medium, requires understanding multiple concepts and complex modifications
-    - 0.6-0.8: Hard, requires deep code understanding and complex modifications
-    - 0.8-1.0: Very hard, requires advanced technical knowledge and complex solutions
+    First, provide your judgment of the Clarity Scoring (0, 1, 2, 3) of the problem, along with your explanation:
 
-    Please return in the following format:
-    <difficulty>0.XX</difficulty>
-    <explanation>Your explanation</explanation>
+    - 0 (Invalid): Statement is incomprehensible or code changes are unrelated.
+    - 1 (Significant Ambiguities): Valid but lacks critical details (e.g., no input/output format).
+    - 2 (Mostly Clear): Valid, clear, but minor details missing (e.g., edge cases not specified).
+    - 3 (Comprehensive): Valid, clear, with detailed requirements and examples.
+
+    Then, provide a difficulty score between 0.0 and 1.0, along with your explanation:
+
+    - 0.0-0.2: Very easy, requires only basic code modifications (e.g., fixing a typo, changing a constant).
+    - 0.2-0.4: Easy, requires understanding some code logic and making simple function or statement modifications (e.g., fixing a simple bug, adding a basic feature).
+    - 0.4-0.6: Medium, requires understanding multiple concepts and making complex modifications across several files, potentially involving some edge case handling (e.g., implementing a new module with moderate complexity).
+    - 0.6-0.8: Hard, requires deep understanding of the codebase architecture and complex modifications with significant impact, involving handling numerous edge cases and potential performance considerations (e.g., refactoring a core component, implementing a complex algorithm).
+    - 0.8-1.0: Very hard, requires advanced technical knowledge, extensive experience, and tackling highly challenging problems with intricate logic, potentially involving system-level considerations or complex domain-specific knowledge (e.g., implementing a new distributed consensus protocol).
+
+    Please return your response in the following structured format:
+    <clarity_score>integer between 0 and 3</clarity_score>
+    <clarity_explanation>Your explanation for the clarity score.</clarity_explanation>
+    <difficulty>float between 0.00 and 1.00</difficulty>
+    <difficulty_explanation>Your explanation for the difficulty score.</difficulty_explanation>
     """
     return prompt
 
